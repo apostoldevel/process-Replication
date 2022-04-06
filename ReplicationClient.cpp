@@ -608,7 +608,7 @@ namespace Apostol {
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
-
+                    m_SendApply = false;
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
@@ -619,6 +619,7 @@ namespace Apostol {
             Message.MessageTypeId = WSProtocol::mtCall;
             Message.UniqueId = GenUniqueId();
             Message.Action = "/replication/apply";
+            Message.Payload = CString().Format(R"({"source": "%s"})", m_Source.c_str());
 
             SendMessage(Message, OnRequest);
         }
@@ -643,6 +644,7 @@ namespace Apostol {
             Message.UniqueId = GenUniqueId();
             Message.Action = "/replication/relay/add";
             Message.Payload = Data;
+            Message.Payload.Object().AddPair("source", m_Source);
 
             SendMessage(Message, OnRequest);
         }
@@ -664,7 +666,7 @@ namespace Apostol {
             Message.MessageTypeId = WSProtocol::mtCall;
             Message.UniqueId = GenUniqueId();
             Message.Action = "/replication/log";
-            Message.Payload = CString().Format(R"({"relayid": %d})", RelayId);
+            Message.Payload = CString().Format(R"({"id": %d})", RelayId);
 
             SendMessage(Message, OnRequest);
         }

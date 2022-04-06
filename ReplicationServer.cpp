@@ -40,12 +40,13 @@ namespace Apostol {
 
         namespace api {
 
-            void add_to_relay_log(CStringList &SQL, unsigned long Id, const CString &DateTime, const CString &Action,
+            void add_to_relay_log(CStringList &SQL, const CString &Source, unsigned long Id, const CString &DateTime, const CString &Action,
                     const CString &Schema, const CString &Name, const CString &Key, const CString &Data, int Priority = 0) {
 
                 SQL.Add(CString()
-                                .MaxFormatSize(256 + DateTime.Size() + Action.Size() + Schema.Size() + Name.Size() + Key.Size() + Data.Size())
-                                .Format("SELECT * FROM api.add_to_relay_log(%d::bigint, %s::timestamptz, %s::char, %s::text, %s::text, %s::jsonb, %s::jsonb, %d);",
+                                .MaxFormatSize(256 + Source.Size() + DateTime.Size() + Action.Size() + Schema.Size() + Name.Size() + Key.Size() + Data.Size())
+                                .Format("SELECT * FROM api.add_to_relay_log(%s::text, %d::bigint, %s::timestamptz, %s::char, %s::text, %s::text, %s::jsonb, %s::jsonb, %d);",
+                                        PQQuoteLiteral(Source).c_str(),
                                         Id,
                                         PQQuoteLiteral(DateTime).c_str(),
                                         PQQuoteLiteral(Action).c_str(),
@@ -57,16 +58,16 @@ namespace Apostol {
                                 ));
             }
 
-            void get_max_relay_id(CStringList &SQL) {
-                SQL.Add("SELECT api.get_max_relay_id();");
+            void get_max_relay_id(CStringList &SQL, const CString &Source) {
+                SQL.Add(CString().Format("SELECT api.get_max_relay_id(%s);", PQQuoteLiteral(Source).c_str()));
             }
 
-            void replication_apply(CStringList &SQL) {
-                SQL.Add("SELECT api.replication_apply();");
+            void replication_apply(CStringList &SQL, const CString &Source) {
+                SQL.Add(CString().Format("SELECT api.replication_apply(%s);", PQQuoteLiteral(Source).c_str()));
             }
 
-            void replication_apply_relay(CStringList &SQL, unsigned long Id) {
-                SQL.Add(CString().Format("SELECT api.replication_apply_relay(%d::bigint);", Id));
+            void replication_apply_relay(CStringList &SQL, const CString &Source, unsigned long Id) {
+                SQL.Add(CString().Format("SELECT api.replication_apply_relay(%s, %d::bigint);", PQQuoteLiteral(Source).c_str(), Id));
             }
         }
 
@@ -83,6 +84,7 @@ namespace Apostol {
         CReplicationServer::CReplicationServer(CCustomProcess *AParent, CApplication *AApplication):
                 inherited(AParent, AApplication, ptCustom, "replication server") {
 
+            m_CheckDate = 0;
             m_FixedDate = 0;
             m_ApplyDate = 0;
             m_ErrorCount = 0;
@@ -178,6 +180,15 @@ namespace Apostol {
                 m_Mode = rmMaster;
             }
 
+            m_Source = m_Config["source"];
+            m_Server = m_Config["server"];
+
+            m_Origin = m_Server;
+
+            if (m_Source.IsEmpty()) {
+                m_Source = CApostolModule::GetHostName();
+            }
+
             const auto &provider = m_Config["provider"];
             const auto &application = m_Config["application"];
             const auto &oauth2 = m_Config["oauth2"];
@@ -185,6 +196,7 @@ namespace Apostol {
             m_Tokens.AddPair(provider, CStringList());
             LoadOAuth2(oauth2, provider.empty() ? SYSTEM_PROVIDER_NAME : provider, application.empty() ? SERVICE_APPLICATION_NAME : application, m_Providers);
 
+            m_CheckDate = 0;
             m_FixedDate = 0;
             m_ApplyDate = 0;
             m_ErrorCount = 0;
@@ -232,7 +244,7 @@ namespace Apostol {
 
                 DebugReply(pConnection->Reply());
 
-                m_FixedDate = Now() + (CDateTime) 30 / SecsPerDay;
+                m_FixedDate = Now() + (CDateTime) 60 / SecsPerDay;
 
                 Log()->Error(APP_LOG_ERR, 0, "[%s:%d] %s", pClient->Host().c_str(), pClient->Port(), E.what());
             };
@@ -272,6 +284,8 @@ namespace Apostol {
                 m_ErrorCount = 0;
 
                 m_Status = psAuthorized;
+
+                m_CheckDate = Now() + (CDateTime) 55 / MinsPerDay; // 55 min
 
                 return true;
             };
@@ -379,6 +393,7 @@ namespace Apostol {
             auto pClient = GetReplicationClient(Host);
             try {
                 InitActions(pClient);
+                pClient->Source() = m_Source;
                 pClient->Active(true);
             } catch (std::exception &e) {
                 Log()->Error(APP_LOG_ERR, 0, e.what());
@@ -396,8 +411,8 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationServer::InitServer() {
-            if (m_ClientManager.Count() == 0) {
-                CreateReplicationClient(m_Config["server"]);
+            if (m_ClientManager.Count() == 0 && !m_Server.IsEmpty()) {
+                CreateReplicationClient(m_Server);
             }
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -453,7 +468,7 @@ namespace Apostol {
             CStringList SQL;
 
             try {
-                api::replication_apply(SQL);
+                api::replication_apply(SQL, m_Origin.Host());
                 ExecSQL(SQL);
             } catch (Delphi::Exception::Exception &E) {
                 DoError(E);
@@ -492,7 +507,7 @@ namespace Apostol {
 
             CStringList SQL;
 
-            api::get_max_relay_id(SQL);
+            api::get_max_relay_id(SQL, m_Origin.Host());
 
             try {
                 ExecSQL(SQL, AClient->Connection(), OnExecuted, OnException);
@@ -561,7 +576,7 @@ namespace Apostol {
 
             if (Request.Payload.IsObject()) {
                 const auto &caObject = Request.Payload.Object();
-                api::add_to_relay_log(SQL, caObject["id"].AsLong(), caObject["datetime"].AsString(),
+                api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(), caObject["datetime"].AsString(),
                                       caObject["action"].AsString(), caObject["schema"].AsString(),
                                       caObject["name"].AsString(), caObject["key"].ToString(),
                                       caObject["data"].ToString(), caObject["priority"].AsInteger());
@@ -610,8 +625,8 @@ namespace Apostol {
                 DoError(E);
             };
 
-            auto Add = [](CStringList &SQL, const CJSONObject &Object) {
-                api::add_to_relay_log(SQL, Object["id"].AsLong(), Object["datetime"].AsString(),
+            auto Add = [this](CStringList &SQL, const CJSONObject &Object) {
+                api::add_to_relay_log(SQL, m_Origin.Host(), Object["id"].AsLong(), Object["datetime"].AsString(),
                                       Object["action"].AsString(), Object["schema"].AsString(),
                                       Object["name"].AsString(), Object["key"].ToString(),
                                       Object["data"].ToString(), Object["priority"].AsInteger());
@@ -724,22 +739,21 @@ namespace Apostol {
         void CReplicationServer::DoHeartbeat() {
             const auto now = Now();
 
-            if (m_Status == Process::psStopped) {
-                if ((now >= m_FixedDate)) {
-                    m_FixedDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
-                    m_Status = Process::psAuthorization;
+            if ((now >= m_CheckDate)) {
+                m_CheckDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
+                m_Status = Process::psAuthorization;
 
-                    CheckProviders();
-                    FetchProviders();
+                CheckProviders();
+                FetchProviders();
 
-                    if (m_Mode == rmMaster) {
-                        CheckListen();
-                    }
+                if (m_Mode == rmMaster) {
+                    CheckListen();
                 }
             }
 
             if (m_Status == Process::psAuthorized) {
                 if ((now >= m_FixedDate)) {
+                    m_FixedDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
                     m_Status = Process::psRunning;
                     InitServer();
                 }

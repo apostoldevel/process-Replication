@@ -329,6 +329,8 @@ namespace Apostol {
         class CReplicationClient: public CCustomReplicationClient {
         private:
 
+            CString m_Source;
+
             bool m_SendApply;
 
             CNotifyEvent m_OnHeartbeat;
@@ -354,6 +356,9 @@ namespace Apostol {
             void SendData(const CString &Data);
 
             void Replication(size_t RelayId);
+
+            CString &Source() { return m_Source; }
+            const CString &Source() const { return m_Source; }
 
             const CNotifyEvent &OnHeartbeat() const { return m_OnHeartbeat; }
             void OnHeartbeat(CNotifyEvent && Value) { m_OnHeartbeat = Value; }

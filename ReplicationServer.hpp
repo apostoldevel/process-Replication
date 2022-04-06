@@ -75,6 +75,8 @@ namespace Apostol {
 
         private:
 
+            CLocation m_Origin;
+
             CProcessStatus m_Status;
 
             CReplicationMode m_Mode;
@@ -82,10 +84,14 @@ namespace Apostol {
             CString m_Session;
             CString m_Secret;
 
+            CString m_Source;
+            CString m_Server;
+
             uint32_t m_ErrorCount;
 
             CStringList m_Config;
 
+            CDateTime m_CheckDate;
             CDateTime m_FixedDate;
             CDateTime m_ApplyDate;
 
