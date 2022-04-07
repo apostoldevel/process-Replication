@@ -93,7 +93,6 @@ namespace Apostol {
 
             CDateTime m_CheckDate;
             CDateTime m_FixedDate;
-            CDateTime m_ApplyDate;
 
             CProviders m_Providers;
             CStringListPairs m_Tokens;

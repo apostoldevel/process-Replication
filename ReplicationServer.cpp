@@ -86,7 +86,6 @@ namespace Apostol {
 
             m_CheckDate = 0;
             m_FixedDate = 0;
-            m_ApplyDate = 0;
             m_ErrorCount = 0;
 
             m_Mode = rmSlave;
@@ -198,7 +197,6 @@ namespace Apostol {
 
             m_CheckDate = 0;
             m_FixedDate = 0;
-            m_ApplyDate = 0;
             m_ErrorCount = 0;
 
             m_Status = psStopped;
@@ -559,13 +557,10 @@ namespace Apostol {
                 try {
                     for (int i = 0; i < APollQuery->Count(); i++) {
                         pResult = APollQuery->Results(i);
-
                         if (pResult->ExecStatus() != PGRES_TUPLES_OK) {
                             throw Delphi::Exception::EDBError(pResult->GetErrorMessage());
                         }
                     }
-
-                    m_ApplyDate = 0;
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
                 }
@@ -583,10 +578,13 @@ namespace Apostol {
 
             if (Request.Payload.IsObject()) {
                 const auto &caObject = Request.Payload.Object();
+
                 api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(), caObject["datetime"].AsString(),
                                       caObject["action"].AsString(), caObject["schema"].AsString(),
                                       caObject["name"].AsString(), caObject["key"].ToString(),
                                       caObject["data"].ToString(), caObject["priority"].AsInteger());
+
+                api::replication_apply_relay(SQL, m_Origin.Host(), caObject["id"].AsLong());
             }
 
             try {
@@ -616,13 +614,13 @@ namespace Apostol {
                         }
                     }
 
+                    Apply();
+
                     auto pConnection = dynamic_cast<CReplicationConnection *> (APollQuery->Binding());
 
                     if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
                         pConnection->ReplicationClient()->Replication(relayId);
                     }
-
-                    m_ApplyDate = 0;
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
                 }
@@ -780,11 +778,6 @@ namespace Apostol {
                             pClient->ConnectStart();
                         }
                     }
-                }
-
-                if ((now >= m_ApplyDate)) {
-                    m_ApplyDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
-                    Apply();
                 }
             }
         }
