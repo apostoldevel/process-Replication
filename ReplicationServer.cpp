@@ -86,6 +86,7 @@ namespace Apostol {
 
             m_CheckDate = 0;
             m_FixedDate = 0;
+            m_ApplyDate = 0;
             m_ErrorCount = 0;
 
             m_Mode = rmSlave;
@@ -197,6 +198,7 @@ namespace Apostol {
 
             m_CheckDate = 0;
             m_FixedDate = 0;
+            m_ApplyDate = 0;
             m_ErrorCount = 0;
 
             m_Status = psStopped;
@@ -542,6 +544,8 @@ namespace Apostol {
             m_Secret.Clear();
 
             m_FixedDate = 0;
+            m_ApplyDate = 0;
+
             m_ErrorCount++;
             m_Status = psStopped;
 
@@ -567,6 +571,8 @@ namespace Apostol {
                             throw Delphi::Exception::EDBError(pResult->GetErrorMessage());
                         }
                     }
+
+                    m_ApplyDate = Now();
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
                 }
@@ -584,13 +590,10 @@ namespace Apostol {
 
             if (Request.Payload.IsObject()) {
                 const auto &caObject = Request.Payload.Object();
-
                 api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(), caObject["datetime"].AsString(),
                                       caObject["action"].AsString(), caObject["schema"].AsString(),
                                       caObject["name"].AsString(), caObject["key"].ToString(),
                                       caObject["data"].ToString(), caObject["priority"].AsInteger());
-
-                api::replication_apply_relay(SQL, m_Origin.Host(), caObject["id"].AsLong());
             }
 
             try {
@@ -797,6 +800,14 @@ namespace Apostol {
                             pClient->ConnectStart();
                         }
                     }
+                }
+
+                if (m_ApplyDate == 0)
+                    m_ApplyDate = now;
+
+                if (now - m_ApplyDate >= (CDateTime) 1 / SecsPerDay) {
+                    m_ApplyDate = now + (CDateTime) 1 / MinsPerDay; // 1 min
+                    Apply();
                 }
             }
         }
