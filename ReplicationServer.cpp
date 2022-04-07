@@ -413,6 +413,7 @@ namespace Apostol {
         void CReplicationServer::InitServer() {
             if (m_ClientManager.Count() == 0 && !m_Server.IsEmpty()) {
                 CreateReplicationClient(m_Server);
+                m_FixedDate = 0;
             }
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -439,7 +440,7 @@ namespace Apostol {
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoError(E);
+                DoDataBaseError(E);
             };
 
             CStringList SQL;
@@ -502,7 +503,7 @@ namespace Apostol {
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoError(E);
+                DoDataBaseError(E);
             };
 
             CStringList SQL;
@@ -544,6 +545,12 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CReplicationServer::DoDataBaseError(const Delphi::Exception::Exception &E) {
+            m_ErrorCount++;
+            Log()->Error(APP_LOG_ERR, 0, "%s", E.what());
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CReplicationServer::OnReplication(CObject *Sender, const CWSMessage &Request, CWSMessage &Response) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
@@ -565,7 +572,7 @@ namespace Apostol {
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoError(E);
+                DoDataBaseError(E);
             };
 
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
@@ -622,7 +629,7 @@ namespace Apostol {
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoError(E);
+                DoDataBaseError(E);
             };
 
             auto Add = [this](CStringList &SQL, const CJSONObject &Object) {

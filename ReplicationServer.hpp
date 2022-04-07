@@ -131,7 +131,9 @@ namespace Apostol {
             void DoTimer(CPollEventHandler *AHandler) override;
 
             void DoHeartbeat();
+
             void DoError(const Delphi::Exception::Exception &E);
+            void DoDataBaseError(const Delphi::Exception::Exception &E);
 
             void DoWebSocketError(CTCPConnection *AConnection);
 
