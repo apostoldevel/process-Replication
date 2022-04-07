@@ -273,17 +273,19 @@ namespace Apostol {
 
                 DebugReply(pReply);
 
-                const CJSON Json(pReply->Content);
+                if (pReply->Status == CHTTPReply::ok) {
+                    const CJSON Json(pReply->Content);
 
-                m_Session = Json["session"].AsString();
-                m_Secret = Json["secret"].AsString();
+                    m_Session = Json["session"].AsString();
+                    m_Secret = Json["secret"].AsString();
 
-                m_FixedDate = 0;
-                m_ErrorCount = 0;
+                    m_FixedDate = 0;
+                    m_ErrorCount = 0;
 
-                m_Status = psAuthorized;
+                    m_Status = psAuthorized;
 
-                m_CheckDate = Now() + (CDateTime) 55 / MinsPerDay; // 55 min
+                    m_CheckDate = Now() + (CDateTime) 55 / MinsPerDay; // 55 min
+                }
 
                 return true;
             };
@@ -346,8 +348,8 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CReplicationClient *CReplicationServer::GetReplicationClient(const CString &Host) {
-            auto pClient = m_ClientManager.Add(CLocation(Host + "/session/" + m_Session));
+        CReplicationClient *CReplicationServer::GetReplicationClient() {
+            auto pClient = m_ClientManager.Add(CLocation(m_Server + "/session/" + m_Session));
 
             pClient->Session() = m_Session;
             pClient->Secret() = m_Secret;
@@ -368,6 +370,7 @@ namespace Apostol {
             pClient->OnMessage([this](auto && Sender, auto && Message) { DoReplicationClientMessage(Sender, Message); });
             pClient->OnError([this](auto && Sender, int Code, auto && Message) { DoReplicationClientError(Sender, Code, Message); });
             pClient->OnHeartbeat([this](auto && Sender) { DoReplicationClientHeartbeat(Sender); });
+            pClient->OnTimeOut([this](auto && Sender) { DoReplicationClientTimeOut(Sender); });
             pClient->OnReplicationLog([this](auto && Sender, auto && Payload) { DoReplicationClientLog(Sender, Payload); });
 #else
             pClient->OnVerbose(std::bind(&CReplicationServer::DoVerbose, this, _1, _2, _3, _4));
@@ -381,14 +384,15 @@ namespace Apostol {
             pClient->OnMessage(std::bind(&CReplicationServer::DoReplicationClientMessage, this, _1, _2));
             pClient->OnError(std::bind(&CReplicationServer::DoReplicationClientError, this, _1, _2, _3));
             pClient->OnHeartbeat(std::bind(&CReplicationServer::DoReplicationClientHeartbeat, this, _1));
+            pClient->OnTimeOut(std::bind(&CReplicationServer::DoReplicationClientTimeOut, this, _1));
             pClient->OnReplicationLog(std::bind(&CReplicationServer::DoReplicationClientLog, this, _1, _2));
 #endif
             return pClient;
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::CreateReplicationClient(const CString &Host) {
-            auto pClient = GetReplicationClient(Host);
+        void CReplicationServer::CreateReplicationClient() {
+            auto pClient = GetReplicationClient();
             try {
                 InitActions(pClient);
                 pClient->Source() = m_Source;
@@ -409,10 +413,12 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationServer::InitServer() {
-            if (m_ClientManager.Count() == 0 && !m_Server.IsEmpty()) {
-                CreateReplicationClient(m_Server);
-                m_FixedDate = 0;
+            if (m_ClientManager.Count() == 0) {
+                CreateReplicationClient();
             }
+
+            m_FixedDate = 0;
+            m_Status = Process::psRunning;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -672,6 +678,15 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CReplicationServer::DoReplicationClientTimeOut(CObject *Sender) {
+            auto pClient = dynamic_cast<CReplicationClient *> (Sender);
+            chASSERT(pClient);
+            pClient->SwitchConnection(nullptr);
+            pClient->Reload();
+            m_FixedDate = 0;
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CReplicationServer::DoReplicationClientMessage(CObject *Sender, const CWSMessage &Message) {
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
             chASSERT(pClient);
@@ -719,6 +734,8 @@ namespace Apostol {
                                   pConnection->Session().c_str());
                 }
             }
+
+            m_Status = psAuthorized;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -759,7 +776,8 @@ namespace Apostol {
             if (m_Status == Process::psAuthorized) {
                 if ((now >= m_FixedDate)) {
                     m_FixedDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
-                    m_Status = Process::psRunning;
+                    m_Status = Process::psInProgress;
+
                     InitServer();
                 }
             }
@@ -770,10 +788,11 @@ namespace Apostol {
 
                     for (int i = 0; i < m_ClientManager.Count(); ++i) {
                         auto pClient = m_ClientManager.Items(i);
-                        if (pClient->DelayedClose()) {
-                            pClient->SwitchConnection(nullptr);
-                            pClient->Disconnect();
-                        } else if (pClient->Active() && !pClient->Connected()) {
+
+                        if (!pClient->Active())
+                            pClient->Active(true);
+
+                        if (!pClient->Connected()) {
                             Log()->Notice(_T("[%s] Trying connect to %s."), pClient->Session().c_str(), pClient->URI().href().c_str());
                             pClient->ConnectStart();
                         }
@@ -791,11 +810,9 @@ namespace Apostol {
             if (pReply->Status == CHTTPReply::moved_permanently || pReply->Status == CHTTPReply::moved_temporarily) {
                 const auto &caLocation = pReply->Headers["Location"];
                 if (!caLocation.IsEmpty()) {
-                    const auto &Location = CLocation(caLocation);
-                    Log()->Notice(_T("[%s] Redirect to %s."), pClient->Session().c_str(), Location.href().c_str());
-                    CreateReplicationClient(Location.Origin());
+                    pClient->SetURI(CLocation(caLocation));
+                    Log()->Notice(_T("[%s] Redirect to %s."), pClient->Session().c_str(), pClient->URI().href().c_str());
                 }
-                pClient->DelayedClose(true);
                 m_FixedDate = 0;
             } else {
                 auto pBinding = pConnection->Socket()->Binding();
@@ -808,8 +825,10 @@ namespace Apostol {
                     Log()->Warning(_T("[%s] Replication client failed to establish a WS connection."),
                                    pConnection->Session().c_str());
                 }
-                m_FixedDate = Now() + (CDateTime) 5 / MinsPerDay; // 5 min
+                m_FixedDate = Now() + (CDateTime) 1 / MinsPerDay; // 1 min
             }
+
+            pConnection->CloseConnection(true);
         }
         //--------------------------------------------------------------------------------------------------------------
 

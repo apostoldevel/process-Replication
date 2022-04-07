@@ -111,8 +111,8 @@ namespace Apostol {
             void InitActions(CReplicationClient *AClient);
             void InitServer();
 
-            CReplicationClient *GetReplicationClient(const CString &Host);
-            void CreateReplicationClient(const CString &Host);
+            CReplicationClient *GetReplicationClient();
+            void CreateReplicationClient();
 
             void CheckProviders();
             void FetchProviders();
@@ -140,6 +140,8 @@ namespace Apostol {
             void DoDisconnected(CObject *Sender);
 
             void DoReplicationClientHeartbeat(CObject *Sender);
+            void DoReplicationClientTimeOut(CObject *Sender);
+
             void DoReplicationClientMessage(CObject *Sender, const CWSMessage &Message);
             void DoReplicationClientError(CObject *Sender, int Code, const CString &Message);
 

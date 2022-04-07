@@ -195,10 +195,11 @@ namespace Apostol {
             int m_HeartbeatInterval;
 
             CDateTime m_PingDateTime;
+            CDateTime m_PongDateTime;
+
             CDateTime m_HeartbeatDateTime;
             CDateTime m_RegistrationDateTime;
 
-            bool m_DelayedClose;
             bool m_Authorized;
             bool m_UpdateConnected;
 
@@ -228,6 +229,8 @@ namespace Apostol {
             void DoDebugWait(CObject *Sender);
             void DoDebugRequest(CObject *Sender);
             void DoDebugReply(CObject *Sender);
+            void DoPing(CObject *Sender);
+            void DoPong(CObject *Sender);
 
             void DoConnectStart(CIOHandlerSocket *AIOHandler, CPollEventHandler *AHandler) override;
             void DoConnect(CPollEventHandler *AHandler) override;
@@ -280,13 +283,10 @@ namespace Apostol {
             void UpdateConnected(bool Value) { SetUpdateConnected(Value); };
             bool UpdateConnected() const { return m_UpdateConnected; };
 
-            bool DelayedClose() const { return m_DelayedClose; }
-            void DelayedClose(bool Value) { m_DelayedClose = Value; }
-
             CString &Key() { return m_Key; }
             const CString &Key() const { return m_Key; }
 
-            CLocation &URI() { return m_URI; }
+            void SetURI(const CLocation &Location);
             const CLocation &URI() const { return m_URI; }
 
             CString &Session() { return m_Session; }
@@ -334,6 +334,7 @@ namespace Apostol {
             bool m_SendApply;
 
             CNotifyEvent m_OnHeartbeat;
+            CNotifyEvent m_OnTimeOut;
 
             COnReplicationClientLog m_OnReplicationLog;
 
@@ -342,6 +343,7 @@ namespace Apostol {
         protected:
 
             void DoHeartbeat();
+            void DoTimeOut();
 
             void DoReplicationLog(const CJSON &Payload);
 
@@ -357,11 +359,16 @@ namespace Apostol {
 
             void Replication(size_t RelayId);
 
+            void Reload();
+
             CString &Source() { return m_Source; }
             const CString &Source() const { return m_Source; }
 
             const CNotifyEvent &OnHeartbeat() const { return m_OnHeartbeat; }
             void OnHeartbeat(CNotifyEvent && Value) { m_OnHeartbeat = Value; }
+
+            const CNotifyEvent &OnTimeOut() const { return m_OnTimeOut; }
+            void OnTimeOut(CNotifyEvent && Value) { m_OnTimeOut = Value; }
 
             const COnReplicationClientLog &OnReplicationLog() const { return m_OnReplicationLog; }
             void OnReplicationLog(COnReplicationClientLog && Value) { m_OnReplicationLog = Value; }

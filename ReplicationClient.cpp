@@ -139,10 +139,10 @@ namespace Apostol {
             m_ErrorCount = -1;
             m_TimerInterval = 0;
             m_PingDateTime = 0;
+            m_PongDateTime = 0;
             m_HeartbeatDateTime = 0;
             m_RegistrationDateTime = 0;
             m_HeartbeatInterval = 600;
-            m_DelayedClose = false;
             m_Authorized = false;
             m_UpdateConnected = false;
             m_OnMessage = nullptr;
@@ -159,10 +159,10 @@ namespace Apostol {
             m_ErrorCount = -1;
             m_TimerInterval = 0;
             m_PingDateTime = 0;
+            m_PongDateTime = 0;
             m_HeartbeatDateTime = 0;
             m_RegistrationDateTime = 0;
             m_HeartbeatInterval = 600;
-            m_DelayedClose = false;
             m_Authorized = false;
             m_UpdateConnected = false;
             m_OnMessage = nullptr;
@@ -321,6 +321,16 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CCustomReplicationClient::DoPing(CObject *Sender) {
+
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CCustomReplicationClient::DoPong(CObject *Sender) {
+            m_PongDateTime = UTC();
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CCustomReplicationClient::DoConnectStart(CIOHandlerSocket *AIOHandler, CPollEventHandler *AHandler) {
             auto pConnection = new CReplicationConnection(this);
             pConnection->IOHandler(AIOHandler);
@@ -348,11 +358,15 @@ namespace Apostol {
                     pConnection->OnWaitRequest([this](auto &&Sender) { DoDebugWait(Sender); });
                     pConnection->OnRequest([this](auto &&Sender) { DoDebugRequest(Sender); });
                     pConnection->OnReply([this](auto &&Sender) { DoDebugReply(Sender); });
+                    pConnection->OnPing([this](auto &&Sender) { DoPing(Sender); });
+                    pConnection->OnPong([this](auto &&Sender) { DoPong(Sender); });
 #else
                     pConnection->OnDisconnected(std::bind(&CReplicationClient::DoDisconnected, this, _1));
                     pConnection->OnWaitRequest(std::bind(&CReplicationClient::DoDebugWait, this, _1));
                     pConnection->OnRequest(std::bind(&CReplicationClient::DoDebugRequest, this, _1));
                     pConnection->OnReply(std::bind(&CReplicationClient::DoDebugReply, this, _1));
+                    pConnection->OnPing(std::bind(&CReplicationClient::DoPing, this, _1));
+                    pConnection->OnPong(std::bind(&CReplicationClient::DoPong, this, _1));
 #endif
                     AHandler->Start(etIO);
 
@@ -451,6 +465,14 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CCustomReplicationClient::SetURI(const CLocation &URI) {
+            m_URI = URI;
+            m_Host = URI.hostname;
+            m_Port = URI.port;
+            m_UsedSSL = m_Port == HTTP_SSL_PORT;
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CCustomReplicationClient::Handshake(CReplicationConnection *AConnection) {
             auto pRequest = AConnection->Request();
 
@@ -460,7 +482,7 @@ namespace Apostol {
 
             CHTTPRequest::Prepare(pRequest, _T("GET"), m_URI.href().c_str(), nullptr, "Upgrade");
 
-            AConnection->SendRequest();
+            AConnection->SendRequest(true);
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -545,6 +567,7 @@ namespace Apostol {
         CReplicationClient::CReplicationClient(): CCustomReplicationClient() {
             m_SendApply = false;
             m_OnHeartbeat = nullptr;
+            m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -552,7 +575,16 @@ namespace Apostol {
         CReplicationClient::CReplicationClient(const CLocation &URI): CCustomReplicationClient(URI) {
             m_SendApply = false;
             m_OnHeartbeat = nullptr;
+            m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationClient::Reload() {
+            m_Authorized = false;
+            m_PongDateTime = 0;
+            m_HeartbeatDateTime = 0;
+            m_RegistrationDateTime = 0;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -674,7 +706,20 @@ namespace Apostol {
 
         void CReplicationClient::Heartbeat() {
             if (Active() && Connected() && Connection()->Protocol() == pWebSocket) {
+
+                if (Connection()->ClosedGracefully()) {
+                    return;
+                }
+
                 const auto now = UTC();
+
+                if (m_PongDateTime == 0)
+                    m_PongDateTime = now;
+
+                if (now - m_PongDateTime >= (CDateTime) 90 / SecsPerDay) {
+                    DoTimeOut();
+                    return;
+                }
 
                 if (now >= m_PingDateTime) {
                     m_PingDateTime = now + (CDateTime) 60 / SecsPerDay; // 60 sec
@@ -709,6 +754,13 @@ namespace Apostol {
         void CReplicationClient::DoHeartbeat() {
             if (m_OnHeartbeat != nullptr) {
                 m_OnHeartbeat(this);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationClient::DoTimeOut() {
+            if (m_OnTimeOut != nullptr) {
+                m_OnTimeOut(this);
             }
         }
 
