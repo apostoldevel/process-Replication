@@ -41,11 +41,11 @@ namespace Apostol {
         namespace api {
 
             void add_to_relay_log(CStringList &SQL, const CString &Source, unsigned long Id, const CString &DateTime, const CString &Action,
-                    const CString &Schema, const CString &Name, const CString &Key, const CString &Data, int Priority = 0) {
+                    const CString &Schema, const CString &Name, const CString &Key, const CString &Data) {
 
                 SQL.Add(CString()
                                 .MaxFormatSize(256 + Source.Size() + DateTime.Size() + Action.Size() + Schema.Size() + Name.Size() + Key.Size() + Data.Size())
-                                .Format("SELECT * FROM api.add_to_relay_log(%s::text, %d::bigint, %s::timestamptz, %s::char, %s::text, %s::text, %s::jsonb, %s::jsonb, %d);",
+                                .Format("SELECT * FROM api.add_to_relay_log(%s::text, %d::bigint, %s::timestamptz, %s::char, %s::text, %s::text, %s::jsonb, %s::jsonb);",
                                         PQQuoteLiteral(Source).c_str(),
                                         Id,
                                         PQQuoteLiteral(DateTime).c_str(),
@@ -53,8 +53,7 @@ namespace Apostol {
                                         PQQuoteLiteral(Schema).c_str(),
                                         PQQuoteLiteral(Name).c_str(),
                                         PQQuoteLiteral(Key).c_str(),
-                                        PQQuoteLiteral(Data).c_str(),
-                                        Priority
+                                        PQQuoteLiteral(Data).c_str()
                                 ));
             }
 
@@ -593,7 +592,7 @@ namespace Apostol {
                 api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(), caObject["datetime"].AsString(),
                                       caObject["action"].AsString(), caObject["schema"].AsString(),
                                       caObject["name"].AsString(), caObject["key"].ToString(),
-                                      caObject["data"].ToString(), caObject["priority"].AsInteger());
+                                      caObject["data"].ToString());
             }
 
             try {
@@ -643,7 +642,7 @@ namespace Apostol {
                 api::add_to_relay_log(SQL, m_Origin.Host(), Object["id"].AsLong(), Object["datetime"].AsString(),
                                       Object["action"].AsString(), Object["schema"].AsString(),
                                       Object["name"].AsString(), Object["key"].ToString(),
-                                      Object["data"].ToString(), Object["priority"].AsInteger());
+                                      Object["data"].ToString());
             };
 
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
