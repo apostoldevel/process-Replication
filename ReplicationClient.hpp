@@ -219,18 +219,18 @@ namespace Apostol {
             void SetTimerInterval(int Value);
             void UpdateTimer();
 
+            void DoDebugWait(CObject *Sender);
+            void DoDebugRequest(CObject *Sender);
+            void DoDebugReply(CObject *Sender);
+            void DoPing(CObject *Sender);
+            void DoPong(CObject *Sender);
+
         protected:
 
             CReplicationMessageHandlerManager m_Messages;
 
             void DoWebSocket(CHTTPClientConnection *AConnection);
             void DoHTTP(CHTTPClientConnection *AConnection);
-
-            void DoDebugWait(CObject *Sender);
-            void DoDebugRequest(CObject *Sender);
-            void DoDebugReply(CObject *Sender);
-            void DoPing(CObject *Sender);
-            void DoPong(CObject *Sender);
 
             void DoConnectStart(CIOHandlerSocket *AIOHandler, CPollEventHandler *AHandler) override;
             void DoConnect(CPollEventHandler *AHandler) override;
@@ -242,7 +242,6 @@ namespace Apostol {
 
             virtual void DoMessage(const CWSMessage &Message);
             virtual void DoError(int Code, const CString &Message);
-
             virtual void DoWebSocketError(CTCPConnection *AConnection);
 
         public:
@@ -324,6 +323,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         typedef std::function<void (CObject *Sender, const CJSON &Payload)> COnReplicationClientLog;
+        typedef std::function<void (CObject *Sender, unsigned long RelayId)> COnReplicationClientCheckLog;
         //--------------------------------------------------------------------------------------------------------------
 
         class CReplicationClient: public CCustomReplicationClient {
@@ -333,10 +333,13 @@ namespace Apostol {
 
             bool m_SendApply;
 
+            CDateTime m_SendApplyDateTime;
+
             CNotifyEvent m_OnHeartbeat;
             CNotifyEvent m_OnTimeOut;
 
             COnReplicationClientLog m_OnReplicationLog;
+            COnReplicationClientCheckLog m_OnCheckReplicationLog;
 
             void Heartbeat() override;
 
@@ -346,6 +349,7 @@ namespace Apostol {
             void DoTimeOut();
 
             void DoReplicationLog(const CJSON &Payload);
+            void DoCheckReplicationLog(unsigned long RelayId);
 
         public:
 
@@ -355,11 +359,13 @@ namespace Apostol {
             void SendAuthorize();
             void SendSubscribe();
             void SendApply();
+            void SendGetMaxRelay();
             void SendData(const CString &Data);
 
             void Replication(size_t RelayId);
 
             void Reload();
+            void SendApplyNow();
 
             CString &Source() { return m_Source; }
             const CString &Source() const { return m_Source; }
@@ -372,6 +378,9 @@ namespace Apostol {
 
             const COnReplicationClientLog &OnReplicationLog() const { return m_OnReplicationLog; }
             void OnReplicationLog(COnReplicationClientLog && Value) { m_OnReplicationLog = Value; }
+
+            const COnReplicationClientCheckLog &OnCheckReplicationLog() const { return m_OnCheckReplicationLog; }
+            void OnCheckReplicationLog(COnReplicationClientCheckLog && Value) { m_OnCheckReplicationLog = Value; }
 
         };
 

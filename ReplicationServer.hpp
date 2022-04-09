@@ -64,6 +64,53 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
+        //-- CReplicationHandler ---------------------------------------------------------------------------------------
+
+        //--------------------------------------------------------------------------------------------------------------
+
+        class CReplicationServer;
+        class CReplicationHandler;
+        //--------------------------------------------------------------------------------------------------------------
+
+        typedef std::function<void (CReplicationHandler *Handler)> COnReplicationHandlerEvent;
+        //--------------------------------------------------------------------------------------------------------------
+
+        class CReplicationHandler: public CPollConnection {
+        private:
+
+            CReplicationServer *m_pModule;
+
+            unsigned long m_ReplicationId;
+
+            bool m_Allow;
+
+            COnReplicationHandlerEvent m_Handler;
+
+            int AddToQueue();
+            void RemoveFromQueue();
+
+        protected:
+
+            void SetAllow(bool Value) { m_Allow = Value; }
+
+        public:
+
+            CReplicationHandler(CReplicationServer *AModule, unsigned long ReplicationId, COnReplicationHandlerEvent && Handler);
+
+            ~CReplicationHandler() override;
+
+            unsigned long ReplicationId() const { return m_ReplicationId; }
+
+            bool Allow() const { return m_Allow; };
+            void Allow(bool Value) { SetAllow(Value); };
+
+            bool Handler();
+
+            void Close() override;
+        };
+
+        //--------------------------------------------------------------------------------------------------------------
+
         //-- CReplicationServer ----------------------------------------------------------------------------------------
 
         //--------------------------------------------------------------------------------------------------------------
@@ -80,6 +127,9 @@ namespace Apostol {
             CProcessStatus m_Status;
 
             CReplicationMode m_Mode;
+
+            bool m_NeedSendApply;
+            bool m_NeedCheckReplicationLog;
 
             CString m_Session;
             CString m_Secret;
@@ -100,6 +150,12 @@ namespace Apostol {
 
             CReplicationClientManager m_ClientManager;
 
+            CQueue m_Queue;
+            CQueueManager m_QueueManager;
+
+            size_t m_Progress;
+            size_t m_MaxQueue;
+
             void BeforeRun() override;
             void AfterRun() override;
 
@@ -114,6 +170,9 @@ namespace Apostol {
 
             CReplicationClient *GetReplicationClient();
             void CreateReplicationClient();
+
+            void UnloadQueue();
+            void DeleteHandler(CReplicationHandler *AHandler);
 
             void CheckProviders();
             void FetchProviders();
@@ -132,21 +191,24 @@ namespace Apostol {
 
             void DoHeartbeat();
 
+            void DoReplication(CReplicationHandler *AHandler);
+
             void DoError(const Delphi::Exception::Exception &E);
             void DoDataBaseError(const Delphi::Exception::Exception &E);
 
             void DoWebSocketError(CTCPConnection *AConnection);
 
-            void DoConnected(CObject *Sender);
-            void DoDisconnected(CObject *Sender);
+            void DoClientConnected(CObject *Sender) override;
+            void DoClientDisconnected(CObject *Sender) override;
 
-            void DoReplicationClientHeartbeat(CObject *Sender);
-            void DoReplicationClientTimeOut(CObject *Sender);
+            void DoClientHeartbeat(CObject *Sender);
+            void DoClientTimeOut(CObject *Sender);
 
-            void DoReplicationClientMessage(CObject *Sender, const CWSMessage &Message);
-            void DoReplicationClientError(CObject *Sender, int Code, const CString &Message);
+            void DoClientMessage(CObject *Sender, const CWSMessage &Message);
+            void DoClientError(CObject *Sender, int Code, const CString &Message);
 
-            void DoReplicationClientLog(CObject *Sender, const CJSON &Payload);
+            void DoClientReplicationLog(CObject *Sender, const CJSON &Payload);
+            void DoClientCheckReplicationLog(CObject *Sender, unsigned long RelayId);
 
             void DoException(CTCPConnection *AConnection, const Delphi::Exception::Exception &E);
             bool DoExecute(CTCPConnection *AConnection) override;
@@ -170,6 +232,21 @@ namespace Apostol {
             void Reload() override;
 
             CPQPollQuery *GetQuery(CPollConnection *AConnection) override;
+
+            void IncProgress() { m_Progress++; }
+            void DecProgress() { m_Progress--; }
+
+            int AddToQueue(CReplicationHandler *AHandler);
+            void InsertToQueue(int Index, CReplicationHandler *AHandler);
+            void RemoveFromQueue(CReplicationHandler *AHandler);
+
+            CQueue &Queue() { return m_Queue; }
+            const CQueue &Queue() const { return m_Queue; }
+
+            CPollManager *ptrQueueManager() { return &m_QueueManager; }
+
+            CPollManager &QueueManager() { return m_QueueManager; }
+            const CPollManager &QueueManager() const { return m_QueueManager; }
 
         };
         //--------------------------------------------------------------------------------------------------------------

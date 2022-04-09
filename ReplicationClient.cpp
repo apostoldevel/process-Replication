@@ -565,26 +565,37 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(): CCustomReplicationClient() {
+            m_SendApplyDateTime = 0;
             m_SendApply = false;
             m_OnHeartbeat = nullptr;
             m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
+            m_OnCheckReplicationLog = nullptr;
         }
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(const CLocation &URI): CCustomReplicationClient(URI) {
+            m_SendApplyDateTime = 0;
             m_SendApply = false;
             m_OnHeartbeat = nullptr;
             m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
+            m_OnCheckReplicationLog = nullptr;
         }
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationClient::Reload() {
             m_Authorized = false;
             m_PongDateTime = 0;
+            m_SendApplyDateTime = 0;
             m_HeartbeatDateTime = 0;
             m_RegistrationDateTime = 0;
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationClient::SendApplyNow() {
+            m_SendApply = true;
+            m_SendApplyDateTime = 0;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -618,7 +629,7 @@ namespace Apostol {
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
-
+                    SendGetMaxRelay();
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
@@ -657,18 +668,41 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CReplicationClient::SendGetMaxRelay() {
+
+            auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
+                const auto &wsMessage = RequestToMessage(AWSConnection);
+                if (wsMessage.MessageTypeId == mtCallResult) {
+                    if (wsMessage.Payload.HasOwnProperty("id")) {
+                        DoCheckReplicationLog(wsMessage.Payload["id"].AsLong());
+                    }
+                } else if (wsMessage.MessageTypeId == mtCallError) {
+                    DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
+                }
+            };
+
+            CWSMessage Message;
+
+            Message.MessageTypeId = WSProtocol::mtCall;
+            Message.UniqueId = GenUniqueId();
+            Message.Action = "/replication/relay/max";
+            Message.Payload = CString().Format(R"({"source": "%s"})", m_Source.c_str());
+
+            SendMessage(Message, OnRequest);
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CReplicationClient::SendData(const CString &Data) {
 
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
                     m_SendApply = true;
+                    m_SendApplyDateTime = UTC() + (CDateTime) 1 / SecsPerDay;
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
             };
-
-            m_SendApply = false;
 
             CWSMessage Message;
 
@@ -705,12 +739,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationClient::Heartbeat() {
-            if (Active() && Connected() && Connection()->Protocol() == pWebSocket) {
-
-                if (Connection()->ClosedGracefully()) {
-                    return;
-                }
-
+            if (Active() && Connected() && !Connection()->ClosedGracefully() && Connection()->Protocol() == pWebSocket) {
                 const auto now = UTC();
 
                 if (m_PongDateTime == 0)
@@ -730,8 +759,8 @@ namespace Apostol {
                         SendAuthorize();
                     }
                 } else {
-                    if (m_SendApply) {
-                        m_SendApply = false;
+                    if (m_SendApply && now >= m_SendApplyDateTime) {
+                        m_SendApplyDateTime = now + (CDateTime) 5 / SecsPerDay;
                         SendApply();
                     }
 
@@ -747,6 +776,13 @@ namespace Apostol {
         void CReplicationClient::DoReplicationLog(const CJSON &Payload) {
             if (m_OnReplicationLog != nullptr) {
                 m_OnReplicationLog(this, Payload);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationClient::DoCheckReplicationLog(unsigned long RelayId) {
+            if (m_OnCheckReplicationLog != nullptr) {
+                m_OnCheckReplicationLog(this, RelayId);
             }
         }
         //--------------------------------------------------------------------------------------------------------------
