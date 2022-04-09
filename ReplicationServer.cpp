@@ -893,7 +893,11 @@ namespace Apostol {
                 }
             }
 
-            m_Status = psAuthorized;
+            if (m_Session.IsEmpty()) {
+                m_Status = psAuthorization;
+            } else {
+                m_Status = psAuthorized;
+            }
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -1004,7 +1008,7 @@ namespace Apostol {
                             pClient->Active(true);
 
                         if (!pClient->Connected()) {
-                            Log()->Notice(_T("[%s] Trying connect to %s."), pClient->Session().c_str(), pClient->URI().href().c_str());
+                            Log()->Notice(_T("[%s] Trying connect to %s."), pClient->Session().IsEmpty() ? "<null>" : pClient->Session().c_str(), pClient->URI().href().c_str());
                             pClient->ConnectStart();
                         }
                     }
