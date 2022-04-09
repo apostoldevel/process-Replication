@@ -674,7 +674,10 @@ namespace Apostol {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
                     if (wsMessage.Payload.HasOwnProperty("id")) {
-                        DoCheckReplicationLog(wsMessage.Payload["id"].AsLong());
+                        const auto &caId = wsMessage.Payload["id"];
+                        if (caId.AsString() != "null") {
+                            DoCheckReplicationLog(caId.AsLong());
+                        }
                     }
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
