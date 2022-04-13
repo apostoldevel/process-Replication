@@ -147,7 +147,7 @@ namespace Apostol {
             m_Progress = 0;
             m_MaxQueue = Config()->PostgresPollMin();
 
-            m_NeedSendApply = false;
+            m_ApplyCount = 0;
             m_NeedCheckReplicationLog = false;
 
             m_Mode = rmSlave;
@@ -257,9 +257,10 @@ namespace Apostol {
             m_Tokens.AddPair(provider, CStringList());
             LoadOAuth2(oauth2, provider.empty() ? SYSTEM_PROVIDER_NAME : provider, application.empty() ? SERVICE_APPLICATION_NAME : application, m_Providers);
 
+            m_ApplyCount = 0;
+            m_ApplyDate = 0;
             m_CheckDate = 0;
             m_FixedDate = 0;
-            m_ApplyDate = 0;
             m_ErrorCount = 0;
 
             m_Status = psStopped;
@@ -571,11 +572,41 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationServer::Apply() {
+
+            auto OnExecuted = [this](CPQPollQuery *APollQuery) {
+                try {
+                    auto pResult = APollQuery->Results(0);
+                    if (pResult->ExecStatus() != PGRES_TUPLES_OK) {
+                        throw Delphi::Exception::EDBError(pResult->GetErrorMessage());
+                    }
+
+                    int count = 0;
+                    if (!pResult->GetIsNull(0, 0)) {
+                        count = StrToInt(pResult->GetValue(0, 0));
+                    }
+
+                    m_ApplyCount -= count;
+                    if (m_ApplyCount < 0) {
+                        m_ApplyCount = 0;
+                    }
+
+                    if (count > 0) {
+                        m_ApplyDate = 0;
+                    }
+                } catch (Delphi::Exception::Exception &E) {
+                    DoDataBaseError(E);
+                }
+            };
+
+            auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
+                DoDataBaseError(E);
+            };
+
             CStringList SQL;
 
             try {
                 api::replication_apply(SQL, m_Origin.Host());
-                ExecSQL(SQL);
+                ExecSQL(SQL, nullptr, OnExecuted, OnException);
             } catch (Delphi::Exception::Exception &E) {
                 DoError(E);
             }
@@ -671,6 +702,7 @@ namespace Apostol {
                         }
                     }
 
+                    m_ApplyCount++;
                     m_ApplyDate = Now() + (CDateTime) 1 / SecsPerDay;
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
@@ -719,6 +751,7 @@ namespace Apostol {
 
                         if (!pResult->GetIsNull(0, 0)) {
                             relayId = StrToInt(pResult->GetValue(0, 0));
+                            m_ApplyCount++;
                         }
                     }
 
@@ -1014,7 +1047,7 @@ namespace Apostol {
                     }
                 }
 
-                if (now >= m_ApplyDate) {
+                if (m_ApplyCount >= 0 && now >= m_ApplyDate) {
                     m_ApplyDate = now + (CDateTime) 60 / MinsPerDay; // 60 min
                     Apply();
                 }

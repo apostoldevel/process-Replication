@@ -565,8 +565,8 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(): CCustomReplicationClient() {
-            m_SendApplyDateTime = 0;
-            m_SendApply = false;
+            m_ApplyCount = 0;
+            m_ApplyDate = 0;
             m_OnHeartbeat = nullptr;
             m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
@@ -575,8 +575,8 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(const CLocation &URI): CCustomReplicationClient(URI) {
-            m_SendApplyDateTime = 0;
-            m_SendApply = false;
+            m_ApplyCount = 0;
+            m_ApplyDate = 0;
             m_OnHeartbeat = nullptr;
             m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
@@ -586,16 +586,11 @@ namespace Apostol {
 
         void CReplicationClient::Reload() {
             m_Authorized = false;
+            m_ApplyCount = 0;
+            m_ApplyDate = 0;
             m_PongDateTime = 0;
-            m_SendApplyDateTime = 0;
             m_HeartbeatDateTime = 0;
             m_RegistrationDateTime = 0;
-        }
-        //--------------------------------------------------------------------------------------------------------------
-
-        void CReplicationClient::SendApplyNow() {
-            m_SendApply = true;
-            m_SendApplyDateTime = 0;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -651,7 +646,18 @@ namespace Apostol {
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
-                    m_SendApply = false;
+                    if (wsMessage.Payload.HasOwnProperty("count")) {
+                        const auto count = wsMessage.Payload["count"].AsInteger();
+
+                        m_ApplyCount -= count;
+                        if (m_ApplyCount < 0) {
+                            m_ApplyCount = 0;
+                        }
+
+                        if (count > 0) {
+                            m_ApplyDate = 0;
+                        }
+                    }
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
@@ -700,8 +706,8 @@ namespace Apostol {
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
-                    m_SendApply = true;
-                    m_SendApplyDateTime = UTC() + (CDateTime) 1 / SecsPerDay;
+                    m_ApplyCount++;
+                    m_ApplyDate = UTC() + (CDateTime) 1 / SecsPerDay;
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
@@ -762,8 +768,8 @@ namespace Apostol {
                         SendAuthorize();
                     }
                 } else {
-                    if (m_SendApply && now >= m_SendApplyDateTime) {
-                        m_SendApplyDateTime = now + (CDateTime) 5 / SecsPerDay;
+                    if (m_ApplyCount >= 0 && now >= m_ApplyDate) {
+                        m_ApplyDate = now + (CDateTime) 60 / MinsPerDay;
                         SendApply();
                     }
 

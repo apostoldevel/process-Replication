@@ -331,9 +331,9 @@ namespace Apostol {
 
             CString m_Source;
 
-            bool m_SendApply;
+            int m_ApplyCount;
 
-            CDateTime m_SendApplyDateTime;
+            CDateTime m_ApplyDate;
 
             CNotifyEvent m_OnHeartbeat;
             CNotifyEvent m_OnTimeOut;
@@ -365,7 +365,6 @@ namespace Apostol {
             void Replication(size_t RelayId);
 
             void Reload();
-            void SendApplyNow();
 
             CString &Source() { return m_Source; }
             const CString &Source() const { return m_Source; }

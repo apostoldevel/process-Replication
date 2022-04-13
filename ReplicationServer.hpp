@@ -128,7 +128,8 @@ namespace Apostol {
 
             CReplicationMode m_Mode;
 
-            bool m_NeedSendApply;
+            int m_ApplyCount;
+
             bool m_NeedCheckReplicationLog;
 
             CString m_Session;
