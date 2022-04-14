@@ -115,7 +115,7 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
-        enum CReplicationMode { rmSlave = 0, rmMaster };
+        enum CReplicationMode { rmSlave = 0, rmProxy, rmMaster };
 
         class CReplicationServer: public CApplicationProcess, public CModuleProcess {
             typedef CApplicationProcess inherited;

@@ -49,13 +49,13 @@ namespace Apostol {
             }
 
             void add_to_relay_log(CStringList &SQL, const CString &Source, unsigned long Id, const CString &DateTime, const CString &Action,
-                    const CString &Schema, const CString &Name, const CString &Key, const CString &Data) {
+                    const CString &Schema, const CString &Name, const CString &Key, const CString &Data, const bool Proxy = false) {
 
                 const auto &data = PQQuoteLiteral(Data);
 
                 SQL.Add(CString()
                                 .MaxFormatSize(256 + Source.Size() + DateTime.Size() + Action.Size() + Schema.Size() + Name.Size() + Key.Size() + data.Size())
-                                .Format("SELECT * FROM api.add_to_relay_log(%s::text, %d::bigint, %s::timestamptz, %s::char, %s::text, %s::text, %s::jsonb, %s::jsonb);",
+                                .Format("SELECT * FROM api.add_to_relay_log(%s::text, %d::bigint, %s::timestamptz, %s::char, %s::text, %s::text, %s::jsonb, %s::jsonb, %s);",
                                         PQQuoteLiteral(Source).c_str(),
                                         Id,
                                         PQQuoteLiteral(DateTime).c_str(),
@@ -63,7 +63,8 @@ namespace Apostol {
                                         PQQuoteLiteral(Schema).c_str(),
                                         PQQuoteLiteral(Name).c_str(),
                                         PQQuoteLiteral(Key).c_str(),
-                                        data.c_str()
+                                        data.c_str(),
+                                        Proxy ? "t" : "f"
                                 ));
             }
 
@@ -237,7 +238,10 @@ namespace Apostol {
 
             Config()->IniFile().ReadSectionValues(CONFIG_SECTION_NAME, &m_Config);
 
-            if (m_Config["mode"] == "master") {
+            m_Mode = rmSlave;
+            if (m_Config["mode"] == "proxy") {
+                m_Mode = rmProxy;
+            } else if (m_Config["mode"] == "master") {
                 m_Mode = rmMaster;
             }
 
@@ -724,7 +728,7 @@ namespace Apostol {
                 api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(), caObject["datetime"].AsString(),
                                       caObject["action"].AsString(), caObject["schema"].AsString(),
                                       caObject["name"].AsString(), caObject["key"].ToString(),
-                                      caObject["data"].ToString());
+                                      caObject["data"].ToString(), m_Mode == rmProxy);
             }
 
             try {
@@ -775,7 +779,7 @@ namespace Apostol {
                 api::add_to_relay_log(SQL, m_Origin.Host(), Object["id"].AsLong(), Object["datetime"].AsString(),
                                       Object["action"].AsString(), Object["schema"].AsString(),
                                       Object["name"].AsString(), Object["key"].ToString(),
-                                      Object["data"].ToString());
+                                      Object["data"].ToString(), m_Mode == rmProxy);
             };
 
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
