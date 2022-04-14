@@ -64,7 +64,7 @@ namespace Apostol {
                                         PQQuoteLiteral(Name).c_str(),
                                         PQQuoteLiteral(Key).c_str(),
                                         data.c_str(),
-                                        Proxy ? "t" : "f"
+                                        Proxy ? "true" : "false"
                                 ));
             }
 
