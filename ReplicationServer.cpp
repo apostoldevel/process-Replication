@@ -235,10 +235,25 @@ namespace Apostol {
 
             m_Providers.Clear();
             m_Tokens.Clear();
+            m_QueueManager.Count();
+            m_ClientManager.Clear();
+
+            m_CheckDate = 0;
+            m_FixedDate = 0;
+            m_ApplyDate = 0;
+            m_ErrorCount = 0;
+
+            m_Progress = 0;
+            m_MaxQueue = Config()->PostgresPollMin();
+
+            m_ApplyCount = 0;
+            m_NeedCheckReplicationLog = false;
+
+            m_Mode = rmSlave;
+            m_Status = psStopped;
 
             Config()->IniFile().ReadSectionValues(CONFIG_SECTION_NAME, &m_Config);
 
-            m_Mode = rmSlave;
             if (m_Config["mode"] == "proxy") {
                 m_Mode = rmProxy;
             } else if (m_Config["mode"] == "master") {
@@ -260,14 +275,6 @@ namespace Apostol {
 
             m_Tokens.AddPair(provider, CStringList());
             LoadOAuth2(oauth2, provider.empty() ? SYSTEM_PROVIDER_NAME : provider, application.empty() ? SERVICE_APPLICATION_NAME : application, m_Providers);
-
-            m_ApplyCount = 0;
-            m_ApplyDate = 0;
-            m_CheckDate = 0;
-            m_FixedDate = 0;
-            m_ErrorCount = 0;
-
-            m_Status = psStopped;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -464,6 +471,7 @@ namespace Apostol {
             try {
                 InitActions(pClient);
                 pClient->Source() = m_Source;
+                pClient->Proxy(m_Mode == rmMaster);
                 pClient->Active(true);
             } catch (std::exception &e) {
                 Log()->Error(APP_LOG_ERR, 0, e.what());
@@ -725,10 +733,14 @@ namespace Apostol {
 
             if (Request.Payload.IsObject()) {
                 const auto &caObject = Request.Payload.Object();
-                api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(), caObject["datetime"].AsString(),
-                                      caObject["action"].AsString(), caObject["schema"].AsString(),
-                                      caObject["name"].AsString(), caObject["key"].ToString(),
-                                      caObject["data"].ToString(), m_Mode == rmProxy);
+                const auto &caSource = caObject["source"].AsString();
+                if (caSource != m_Source) {
+                    api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(),
+                                          caObject["datetime"].AsString(),
+                                          caObject["action"].AsString(), caObject["schema"].AsString(),
+                                          caObject["name"].AsString(), caObject["key"].ToString(),
+                                          caObject["data"].ToString(), m_Mode >= rmProxy);
+                }
             }
 
             try {
@@ -776,10 +788,13 @@ namespace Apostol {
             };
 
             auto Add = [this](CStringList &SQL, const CJSONObject &Object) {
-                api::add_to_relay_log(SQL, m_Origin.Host(), Object["id"].AsLong(), Object["datetime"].AsString(),
-                                      Object["action"].AsString(), Object["schema"].AsString(),
-                                      Object["name"].AsString(), Object["key"].ToString(),
-                                      Object["data"].ToString(), m_Mode == rmProxy);
+                const auto &caSource = Object["source"].AsString();
+                if (caSource != m_Source) {
+                    api::add_to_relay_log(SQL, m_Origin.Host(), Object["id"].AsLong(), Object["datetime"].AsString(),
+                                          Object["action"].AsString(), Object["schema"].AsString(),
+                                          Object["name"].AsString(), Object["key"].ToString(),
+                                          Object["data"].ToString(), m_Mode >= rmProxy);
+                }
             };
 
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);

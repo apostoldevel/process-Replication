@@ -719,7 +719,21 @@ namespace Apostol {
             Message.UniqueId = GenUniqueId();
             Message.Action = "/replication/relay/add";
             Message.Payload = Data;
-            Message.Payload.Object().AddPair("source", m_Source);
+
+            const CString Source("source");
+            const CString Proxy("proxy");
+
+            if (Message.Payload.Object().HasOwnProperty(Source)) {
+                Message.Payload.Object()[Source] = m_Source;
+            } else {
+                Message.Payload.Object().AddPair(Source, m_Source);
+            }
+
+            if (Message.Payload.Object().HasOwnProperty(Proxy)) {
+                Message.Payload.Object()[Proxy] = m_Proxy;
+            } else {
+                Message.Payload.Object().AddPair(Proxy, m_Proxy);
+            }
 
             SendMessage(Message, OnRequest);
         }

@@ -335,6 +335,8 @@ namespace Apostol {
 
             CDateTime m_ApplyDate;
 
+            bool m_Proxy;
+
             CNotifyEvent m_OnHeartbeat;
             CNotifyEvent m_OnTimeOut;
 
@@ -368,6 +370,9 @@ namespace Apostol {
 
             CString &Source() { return m_Source; }
             const CString &Source() const { return m_Source; }
+
+            bool Proxy() const { return m_Proxy; }
+            void Proxy(bool Value) { m_Proxy = Value; }
 
             const CNotifyEvent &OnHeartbeat() const { return m_OnHeartbeat; }
             void OnHeartbeat(CNotifyEvent && Value) { m_OnHeartbeat = Value; }
