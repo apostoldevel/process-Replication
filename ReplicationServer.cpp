@@ -743,6 +743,10 @@ namespace Apostol {
                 }
             }
 
+            if (SQL.Count() == 0) {
+                return;
+            }
+
             try {
                 ExecSQL(SQL, pClient->Connection(), OnExecuted, OnException);
             } catch (Delphi::Exception::Exception &E) {
