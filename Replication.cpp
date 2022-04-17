@@ -141,7 +141,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationProcess::CReplicationProcess(CCustomProcess *AParent, CApplication *AApplication):
-                inherited(AParent, AApplication, ptCustom, "replication server") {
+                inherited(AParent, AApplication, ptCustom, "replication process") {
 
             m_CheckDate = 0;
             m_FixedDate = 0;
@@ -162,7 +162,7 @@ namespace Apostol {
         void CReplicationProcess::BeforeRun() {
             sigset_t set;
 
-            Application()->Header(Application()->Name() + ": replication server");
+            Application()->Header(Application()->Name() + ": replication process");
 
             Log()->Debug(APP_LOG_DEBUG_CORE, MSG_PROCESS_START, GetProcessName(), Application()->Header().c_str());
 
@@ -191,7 +191,7 @@ namespace Apostol {
         void CReplicationProcess::Run() {
             while (!sig_exiting) {
 
-                Log()->Debug(APP_LOG_DEBUG_EVENT, _T("replication server cycle"));
+                Log()->Debug(APP_LOG_DEBUG_EVENT, _T("replication process cycle"));
 
                 try {
                     PQClient().Wait();
@@ -203,7 +203,7 @@ namespace Apostol {
                     if (sig_quit) {
                         sig_quit = 0;
                         Log()->Debug(APP_LOG_DEBUG_EVENT, _T("gracefully shutting down"));
-                        Application()->Header(_T("replication server is shutting down"));
+                        Application()->Header(_T("replication process is shutting down"));
                     }
 
                     if (!sig_exiting) {
@@ -224,7 +224,7 @@ namespace Apostol {
                 }
             }
 
-            Log()->Debug(APP_LOG_DEBUG_EVENT, _T("stop replication server"));
+            Log()->Debug(APP_LOG_DEBUG_EVENT, _T("stop replication process"));
         }
         //--------------------------------------------------------------------------------------------------------------
 
