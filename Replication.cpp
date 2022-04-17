@@ -6,11 +6,11 @@ Program name:
 
 Module Name:
 
-  ReplicationServer.cpp
+  Replication.cpp
 
 Notices:
 
-  Replication Server
+  Replication process
 
 Author:
 
@@ -22,7 +22,7 @@ Author:
 --*/
 
 #include "Core.hpp"
-#include "ReplicationServer.hpp"
+#include "Replication.hpp"
 //----------------------------------------------------------------------------------------------------------------------
 
 #include "jwt.h"
@@ -94,7 +94,7 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
-        CReplicationHandler::CReplicationHandler(CReplicationServer *AModule, unsigned long ReplicationId,
+        CReplicationHandler::CReplicationHandler(CReplicationProcess *AModule, unsigned long ReplicationId,
                 COnReplicationHandlerEvent && Handler): CPollConnection(AModule->ptrQueueManager()), m_Allow(true) {
 
             m_pModule = AModule;
@@ -136,11 +136,11 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
-        //-- CReplicationServer ----------------------------------------------------------------------------------------
+        //-- CReplicationProcess ---------------------------------------------------------------------------------------
 
         //--------------------------------------------------------------------------------------------------------------
 
-        CReplicationServer::CReplicationServer(CCustomProcess *AParent, CApplication *AApplication):
+        CReplicationProcess::CReplicationProcess(CCustomProcess *AParent, CApplication *AApplication):
                 inherited(AParent, AApplication, ptCustom, "replication server") {
 
             m_CheckDate = 0;
@@ -159,7 +159,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::BeforeRun() {
+        void CReplicationProcess::BeforeRun() {
             sigset_t set;
 
             Application()->Header(Application()->Name() + ": replication server");
@@ -182,13 +182,13 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::AfterRun() {
+        void CReplicationProcess::AfterRun() {
             CApplicationProcess::AfterRun();
             PQClientStop();
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::Run() {
+        void CReplicationProcess::Run() {
             while (!sig_exiting) {
 
                 Log()->Debug(APP_LOG_DEBUG_EVENT, _T("replication server cycle"));
@@ -228,12 +228,12 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        bool CReplicationServer::DoExecute(CTCPConnection *AConnection) {
+        bool CReplicationProcess::DoExecute(CTCPConnection *AConnection) {
             return CModuleProcess::DoExecute(AConnection);
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::Reload() {
+        void CReplicationProcess::Reload() {
             CServerProcess::Reload();
 
             m_Providers.Clear();
@@ -281,7 +281,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CString CReplicationServer::CreateToken(const CProvider &Provider, const CString &Application) {
+        CString CReplicationProcess::CreateToken(const CProvider &Provider, const CString &Application) {
             auto token = jwt::create()
                     .set_issuer(Provider.Issuer(Application))
                     .set_audience(Provider.ClientId(Application))
@@ -293,7 +293,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::FetchAccessToken(const CString &URI, const CString &Assertion,
+        void CReplicationProcess::FetchAccessToken(const CString &URI, const CString &Assertion,
                                                  COnSocketExecuteEvent &&OnDone, COnSocketExceptionEvent &&OnFailed) {
 
             auto OnRequest = [](CHTTPClient *Sender, CHTTPRequest *ARequest) {
@@ -341,7 +341,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::CreateAccessToken(const CProvider &Provider, const CString &Application,
+        void CReplicationProcess::CreateAccessToken(const CProvider &Provider, const CString &Application,
                                                   CStringList &Tokens) {
 
             auto OnDone = [this](CTCPConnection *Sender) {
@@ -381,7 +381,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::CheckProviders() {
+        void CReplicationProcess::CheckProviders() {
             for (int i = 0; i < m_Providers.Count(); i++) {
                 auto& Provider = m_Providers[i].Value();
                 if (Provider.KeyStatus() != ksUnknown) {
@@ -392,7 +392,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::FetchProviders() {
+        void CReplicationProcess::FetchProviders() {
             for (int i = 0; i < m_Providers.Count(); i++) {
                 auto& Provider = m_Providers[i].Value();
                 for (int j = 0; j < Provider.Applications().Count(); ++j) {
@@ -409,7 +409,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CPQPollQuery *CReplicationServer::GetQuery(CPollConnection *AConnection) {
+        CPQPollQuery *CReplicationProcess::GetQuery(CPollConnection *AConnection) {
             auto pQuery = CServerProcess::GetQuery(AConnection);
 
             if (Assigned(pQuery)) {
@@ -417,8 +417,8 @@ namespace Apostol {
                 pQuery->OnPollExecuted([this](auto && APollQuery) { DoPostgresQueryExecuted(APollQuery); });
                 pQuery->OnException([this](auto && APollQuery, auto && AException) { DoPostgresQueryException(APollQuery, AException); });
 #else
-                pQuery->OnPollExecuted(std::bind(&CReplicationServer::DoPostgresQueryExecuted, this, _1));
-                pQuery->OnException(std::bind(&CReplicationServer::DoPostgresQueryException, this, _1, _2));
+                pQuery->OnPollExecuted(std::bind(&CReplicationProcess::DoPostgresQueryExecuted, this, _1));
+                pQuery->OnException(std::bind(&CReplicationProcess::DoPostgresQueryException, this, _1, _2));
 #endif
             }
 
@@ -426,7 +426,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CReplicationClient *CReplicationServer::GetReplicationClient() {
+        CReplicationClient *CReplicationProcess::GetReplicationClient() {
             auto pClient = m_ClientManager.Add(CLocation(m_Server + "/session/" + m_Session));
 
             pClient->Session() = m_Session;
@@ -451,25 +451,25 @@ namespace Apostol {
             pClient->OnReplicationLog([this](auto && Sender, auto && Payload) { DoClientReplicationLog(Sender, Payload); });
             pClient->OnCheckReplicationLog([this](auto && Sender, auto && RelayId) { DoClientCheckReplicationLog(Sender, RelayId); });
 #else
-            pClient->OnVerbose(std::bind(&CReplicationServer::DoVerbose, this, _1, _2, _3, _4));
-            pClient->OnWebSocketError(std::bind(&CReplicationServer::DoWebSocketError, this, _1));
-            pClient->OnException(std::bind(&CReplicationServer::DoException, this, _1, _2));
-            pClient->OnEventHandlerException(std::bind(&CReplicationServer::DoServerEventHandlerException, this, _1, _2));
-            pClient->OnConnected(std::bind(&CReplicationServer::DoClientConnected, this, _1));
-            pClient->OnDisconnected(std::bind(&CReplicationServer::DoClientDisconnected, this, _1));
-            pClient->OnNoCommandHandler(std::bind(&CReplicationServer::DoNoCommandHandler, this, _1, _2, _3));
-            pClient->OnMessage(std::bind(&CReplicationServer::DoClientMessage, this, _1, _2));
-            pClient->OnError(std::bind(&CReplicationServer::DoClientError, this, _1, _2, _3));
-            pClient->OnHeartbeat(std::bind(&CReplicationServer::DoClientHeartbeat, this, _1));
-            pClient->OnTimeOut(std::bind(&CReplicationServer::DoClientTimeOut, this, _1));
-            pClient->OnReplicationLog(std::bind(&CReplicationServer::DoClientReplicationLog, this, _1, _2));
-            pClient->OnCheckReplicationLog(std::bind(&CReplicationServer::DoClientCheckReplicationLog, this, _1, _2));
+            pClient->OnVerbose(std::bind(&CReplicationProcess::DoVerbose, this, _1, _2, _3, _4));
+            pClient->OnWebSocketError(std::bind(&CReplicationProcess::DoWebSocketError, this, _1));
+            pClient->OnException(std::bind(&CReplicationProcess::DoException, this, _1, _2));
+            pClient->OnEventHandlerException(std::bind(&CReplicationProcess::DoServerEventHandlerException, this, _1, _2));
+            pClient->OnConnected(std::bind(&CReplicationProcess::DoClientConnected, this, _1));
+            pClient->OnDisconnected(std::bind(&CReplicationProcess::DoClientDisconnected, this, _1));
+            pClient->OnNoCommandHandler(std::bind(&CReplicationProcess::DoNoCommandHandler, this, _1, _2, _3));
+            pClient->OnMessage(std::bind(&CReplicationProcess::DoClientMessage, this, _1, _2));
+            pClient->OnError(std::bind(&CReplicationProcess::DoClientError, this, _1, _2, _3));
+            pClient->OnHeartbeat(std::bind(&CReplicationProcess::DoClientHeartbeat, this, _1));
+            pClient->OnTimeOut(std::bind(&CReplicationProcess::DoClientTimeOut, this, _1));
+            pClient->OnReplicationLog(std::bind(&CReplicationProcess::DoClientReplicationLog, this, _1, _2));
+            pClient->OnCheckReplicationLog(std::bind(&CReplicationProcess::DoClientCheckReplicationLog, this, _1, _2));
 #endif
             return pClient;
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::CreateReplicationClient() {
+        void CReplicationProcess::CreateReplicationClient() {
             auto pClient = GetReplicationClient();
             try {
                 InitActions(pClient);
@@ -482,22 +482,22 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        int CReplicationServer::AddToQueue(CReplicationHandler *AHandler) {
+        int CReplicationProcess::AddToQueue(CReplicationHandler *AHandler) {
             return m_Queue.AddToQueue(this, AHandler);
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::InsertToQueue(int Index, CReplicationHandler *AHandler) {
+        void CReplicationProcess::InsertToQueue(int Index, CReplicationHandler *AHandler) {
             m_Queue.InsertToQueue(this, Index, AHandler);
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::RemoveFromQueue(CReplicationHandler *AHandler) {
+        void CReplicationProcess::RemoveFromQueue(CReplicationHandler *AHandler) {
             m_Queue.RemoveFromQueue(this, AHandler);
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::UnloadQueue() {
+        void CReplicationProcess::UnloadQueue() {
             const auto index = m_Queue.IndexOf(this);
             if (index != -1) {
                 const auto queue = m_Queue[index];
@@ -513,23 +513,23 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DeleteHandler(CReplicationHandler *AHandler) {
+        void CReplicationProcess::DeleteHandler(CReplicationHandler *AHandler) {
             delete AHandler;
             DecProgress();
             UnloadQueue();
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::InitActions(CReplicationClient *AClient) {
+        void CReplicationProcess::InitActions(CReplicationClient *AClient) {
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
             AClient->Actions().AddObject(_T("/replication"), (CObject *) new CReplicationActionHandler(true , [this](auto && Sender, auto && Request, auto && Response) { OnReplication(Sender, Request, Response); }));
 #else
-            AClient->Actions().AddObject(_T("/replication")     , (CObject *) new CReplicationActionHandler(true , std::bind(&CReplicationServer::OnReplication, this, _1, _2, _3)));
+            AClient->Actions().AddObject(_T("/replication")     , (CObject *) new CReplicationActionHandler(true , std::bind(&CReplicationProcess::OnReplication, this, _1, _2, _3)));
 #endif
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::InitServer() {
+        void CReplicationProcess::InitServer() {
             if (m_ClientManager.Count() == 0) {
                 CreateReplicationClient();
             }
@@ -539,7 +539,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::InitListen() {
+        void CReplicationProcess::InitListen() {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 try {
@@ -553,7 +553,7 @@ namespace Apostol {
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
                     APollQuery->Connection()->OnNotify([this](auto && APollQuery, auto && ANotify) { DoPostgresNotify(APollQuery, ANotify); });
 #else
-                    APollQuery->Connection()->OnNotify(std::bind(&CReplicationServer::DoPostgresNotify, this, _1, _2));
+                    APollQuery->Connection()->OnNotify(std::bind(&CReplicationProcess::DoPostgresNotify, this, _1, _2));
 #endif
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
@@ -576,7 +576,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::CheckListen() {
+        void CReplicationProcess::CheckListen() {
             int index = 0;
             while (index < PQClient().PollManager().Count() && !PQClient().Connections(index)->Listener())
                 index++;
@@ -586,7 +586,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::Apply() {
+        void CReplicationProcess::Apply() {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 try {
@@ -628,7 +628,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::CheckRelayLog(CReplicationClient *AClient) {
+        void CReplicationProcess::CheckRelayLog(CReplicationClient *AClient) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 try {
@@ -669,7 +669,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoTimer(CPollEventHandler *AHandler) {
+        void CReplicationProcess::DoTimer(CPollEventHandler *AHandler) {
             uint64_t exp;
 
             auto pTimer = dynamic_cast<CEPollTimer *> (AHandler->Binding());
@@ -684,7 +684,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoError(const Delphi::Exception::Exception &E) {
+        void CReplicationProcess::DoError(const Delphi::Exception::Exception &E) {
             m_Session.Clear();
             m_Secret.Clear();
 
@@ -698,13 +698,13 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoDataBaseError(const Delphi::Exception::Exception &E) {
+        void CReplicationProcess::DoDataBaseError(const Delphi::Exception::Exception &E) {
             m_ErrorCount++;
             Log()->Error(APP_LOG_ERR, 0, "%s", E.what());
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::OnReplication(CObject *Sender, const CWSMessage &Request, CWSMessage &Response) {
+        void CReplicationProcess::OnReplication(CObject *Sender, const CWSMessage &Request, CWSMessage &Response) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 CPQResult *pResult;
@@ -758,7 +758,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientReplicationLog(CObject *Sender, const CJSON &Payload) {
+        void CReplicationProcess::DoClientReplicationLog(CObject *Sender, const CJSON &Payload) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 CPQResult *pResult;
@@ -832,7 +832,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientCheckReplicationLog(CObject *Sender, unsigned long RelayId) {
+        void CReplicationProcess::DoClientCheckReplicationLog(CObject *Sender, unsigned long RelayId) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 CPQResult *pResult;
@@ -883,7 +883,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientHeartbeat(CObject *Sender) {
+        void CReplicationProcess::DoClientHeartbeat(CObject *Sender) {
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
             chASSERT(pClient);
 
@@ -895,7 +895,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientTimeOut(CObject *Sender) {
+        void CReplicationProcess::DoClientTimeOut(CObject *Sender) {
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
             chASSERT(pClient);
             pClient->SwitchConnection(nullptr);
@@ -904,7 +904,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientMessage(CObject *Sender, const CWSMessage &Message) {
+        void CReplicationProcess::DoClientMessage(CObject *Sender, const CWSMessage &Message) {
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
             chASSERT(pClient);
             Log()->Message("[%s] [%s] [%s] [%s] %s", pClient->Session().c_str(),
@@ -915,12 +915,12 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientError(CObject *Sender, int Code, const CString &Message) {
+        void CReplicationProcess::DoClientError(CObject *Sender, int Code, const CString &Message) {
             Log()->Error(APP_LOG_ERR, 0, "[%d] %s", Code, Message.c_str());
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientConnected(CObject *Sender) {
+        void CReplicationProcess::DoClientConnected(CObject *Sender) {
             auto pConnection = dynamic_cast<CReplicationConnection *>(Sender);
             if (pConnection != nullptr) {
                 auto pBinding = pConnection->Socket()->Binding();
@@ -937,7 +937,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoClientDisconnected(CObject *Sender) {
+        void CReplicationProcess::DoClientDisconnected(CObject *Sender) {
             auto pConnection = dynamic_cast<CReplicationConnection *>(Sender);
             if (pConnection != nullptr) {
                 auto pBinding = pConnection->Socket()->Binding();
@@ -960,7 +960,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoReplication(CReplicationHandler *AHandler) {
+        void CReplicationProcess::DoReplication(CReplicationHandler *AHandler) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
 
@@ -1012,7 +1012,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoPostgresNotify(CPQConnection *AConnection, PGnotify *ANotify) {
+        void CReplicationProcess::DoPostgresNotify(CPQConnection *AConnection, PGnotify *ANotify) {
 #ifdef _DEBUG
             const auto& Info = AConnection->ConnInfo();
 
@@ -1025,14 +1025,14 @@ namespace Apostol {
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
                 new CReplicationHandler(this, Json["id"].AsLong(), [this](auto &&Handler) { DoReplication(Handler); });
 #else
-                new CReplicationHandler(this, Json["id"].AsLong(), std::bind(&CReplicationServer::DoReplication, this, _1));
+                new CReplicationHandler(this, Json["id"].AsLong(), std::bind(&CReplicationProcess::DoReplication, this, _1));
 #endif
                 UnloadQueue();
             }
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoHeartbeat() {
+        void CReplicationProcess::DoHeartbeat() {
             const auto now = Now();
 
             if ((now >= m_CheckDate)) {
@@ -1085,7 +1085,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoWebSocketError(CTCPConnection *AConnection) {
+        void CReplicationProcess::DoWebSocketError(CTCPConnection *AConnection) {
             auto pConnection = dynamic_cast<CReplicationConnection *> (AConnection);
             auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
             auto pReply = pConnection->Reply();
@@ -1115,13 +1115,13 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoException(CTCPConnection *AConnection, const Delphi::Exception::Exception &E) {
+        void CReplicationProcess::DoException(CTCPConnection *AConnection, const Delphi::Exception::Exception &E) {
             Log()->Error(APP_LOG_ERR, 0, "%s", E.what());
             sig_reopen = 1;
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoPostgresQueryExecuted(CPQPollQuery *APollQuery) {
+        void CReplicationProcess::DoPostgresQueryExecuted(CPQPollQuery *APollQuery) {
             CPQResult *pResult;
 
             try {
@@ -1136,7 +1136,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationServer::DoPostgresQueryException(CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
+        void CReplicationProcess::DoPostgresQueryException(CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
             Log()->Error(APP_LOG_ERR, 0, "%s", E.what());
         }
         //--------------------------------------------------------------------------------------------------------------

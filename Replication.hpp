@@ -6,11 +6,11 @@ Program name:
 
 Module Name:
 
-  ReplicationServer.hpp
+  Replication.hpp
 
 Notices:
 
-  Replication Server
+  Replication process
 
 Author:
 
@@ -21,8 +21,8 @@ Author:
 
 --*/
 
-#ifndef APOSTOL_REPLICATION_SERVER_HPP
-#define APOSTOL_REPLICATION_SERVER_HPP
+#ifndef APOSTOL_REPLICATION_PROCESS_HPP
+#define APOSTOL_REPLICATION_PROCESS_HPP
 //----------------------------------------------------------------------------------------------------------------------
 
 extern "C++" {
@@ -68,7 +68,7 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
-        class CReplicationServer;
+        class CReplicationProcess;
         class CReplicationHandler;
         //--------------------------------------------------------------------------------------------------------------
 
@@ -78,7 +78,7 @@ namespace Apostol {
         class CReplicationHandler: public CPollConnection {
         private:
 
-            CReplicationServer *m_pModule;
+            CReplicationProcess *m_pModule;
 
             unsigned long m_ReplicationId;
 
@@ -95,7 +95,7 @@ namespace Apostol {
 
         public:
 
-            CReplicationHandler(CReplicationServer *AModule, unsigned long ReplicationId, COnReplicationHandlerEvent && Handler);
+            CReplicationHandler(CReplicationProcess *AModule, unsigned long ReplicationId, COnReplicationHandlerEvent && Handler);
 
             ~CReplicationHandler() override;
 
@@ -111,7 +111,7 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
-        //-- CReplicationServer ----------------------------------------------------------------------------------------
+        //-- CReplicationProcess ---------------------------------------------------------------------------------------
 
         //--------------------------------------------------------------------------------------------------------------
 
@@ -121,7 +121,7 @@ namespace Apostol {
         enum CReplicationMode { rmSlave = 0, rmProxy, rmMaster };
         //--------------------------------------------------------------------------------------------------------------
 
-        class CReplicationServer: public CApplicationProcess, public CModuleProcess {
+        class CReplicationProcess: public CApplicationProcess, public CModuleProcess {
             typedef CApplicationProcess inherited;
 
         private:
@@ -225,12 +225,12 @@ namespace Apostol {
 
         public:
 
-            explicit CReplicationServer(CCustomProcess* AParent, CApplication *AApplication);
+            explicit CReplicationProcess(CCustomProcess* AParent, CApplication *AApplication);
 
-            ~CReplicationServer() override = default;
+            ~CReplicationProcess() override = default;
 
-            static class CReplicationServer *CreateProcess(CCustomProcess *AParent, CApplication *AApplication) {
-                return new CReplicationServer(AParent, AApplication);
+            static class CReplicationProcess *CreateProcess(CCustomProcess *AParent, CApplication *AApplication) {
+                return new CReplicationProcess(AParent, AApplication);
             }
 
             void Run() override;
@@ -261,4 +261,4 @@ namespace Apostol {
 
 using namespace Apostol::Replication;
 }
-#endif //APOSTOL_REPLICATION_SERVER_HPP
+#endif //APOSTOL_REPLICATION_PROCESS_HPP
