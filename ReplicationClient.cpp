@@ -635,7 +635,7 @@ namespace Apostol {
             Message.MessageTypeId = WSProtocol::mtCall;
             Message.UniqueId = GenUniqueId();
             Message.Action = "/observer/subscribe";
-            Message.Payload = R"({"publisher": "replication"})";
+            Message.Payload = CString().Format(R"({"publisher": "replication", "params": {"source": "%s"}})", m_Source.c_str());
 
             SendMessage(Message, OnRequest);
         }
@@ -755,7 +755,7 @@ namespace Apostol {
             Message.MessageTypeId = WSProtocol::mtCall;
             Message.UniqueId = GenUniqueId();
             Message.Action = "/replication/log";
-            Message.Payload = CString().Format(R"({"id": %d})", RelayId);
+            Message.Payload = CString().Format(R"({"id": %d, "source": "%s"})", RelayId, m_Source.c_str());
 
             SendMessage(Message, OnRequest);
         }

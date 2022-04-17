@@ -40,8 +40,11 @@ namespace Apostol {
 
         namespace api {
 
-            void replication_log(CStringList &SQL, unsigned long RelayId, unsigned int Limit = 150) {
-                SQL.Add(CString().Format("SELECT row_to_json(r) FROM api.replication_log(%d, %d) AS r ORDER BY id DESC;", RelayId, Limit));
+            void replication_log(CStringList &SQL, unsigned long RelayId, const CString &Source, unsigned int Limit = 500) {
+                SQL.Add(CString().Format("SELECT row_to_json(r) FROM api.replication_log(%d, %s, %d) AS r ORDER BY id DESC;",
+                                         RelayId,
+                                         PQQuoteLiteral(Source).c_str(),
+                                         Limit));
             }
 
             void get_replication_log(CStringList &SQL, unsigned long Id) {
@@ -869,7 +872,7 @@ namespace Apostol {
 
                 CStringList SQL;
 
-                api::replication_log(SQL, RelayId);
+                api::replication_log(SQL, RelayId, m_Origin.Host());
 
                 try {
                     ExecSQL(SQL, pClient->Connection(), OnExecuted, OnException);
