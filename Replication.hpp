@@ -182,6 +182,8 @@ namespace Apostol {
             void CheckProviders();
             void FetchProviders();
 
+            void Heartbeat(CDateTime Now);
+
             void FetchAccessToken(const CString &URI, const CString &Assertion,
                 COnSocketExecuteEvent && OnDone, COnSocketExceptionEvent && OnFailed = nullptr);
             void CreateAccessToken(const CProvider &Provider, const CString &Application, CStringList &Tokens);
@@ -194,7 +196,6 @@ namespace Apostol {
 
             void DoTimer(CPollEventHandler *AHandler) override;
 
-            void DoHeartbeat();
 
             void DoReplication(CReplicationHandler *AHandler);
 

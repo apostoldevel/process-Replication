@@ -238,7 +238,7 @@ namespace Apostol {
 
             void DoTimer(CPollEventHandler *AHandler);
 
-            virtual void Heartbeat() abstract;
+            virtual void Heartbeat(CDateTime Now) abstract;
 
             virtual void DoMessage(const CWSMessage &Message);
             virtual void DoError(int Code, const CString &Message);
@@ -343,7 +343,7 @@ namespace Apostol {
             COnReplicationClientLog m_OnReplicationLog;
             COnReplicationClientCheckLog m_OnCheckReplicationLog;
 
-            void Heartbeat() override;
+            void Heartbeat(CDateTime Now) override;
 
         protected:
 

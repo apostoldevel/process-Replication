@@ -286,7 +286,7 @@ namespace Apostol {
             auto pTimer = dynamic_cast<CEPollTimer *> (AHandler->Binding());
             pTimer->Read(&exp, sizeof(uint64_t));
 
-            Heartbeat();
+            Heartbeat(AHandler->TimeStamp());
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -368,7 +368,7 @@ namespace Apostol {
                     pConnection->OnPing(std::bind(&CReplicationClient::DoPing, this, _1));
                     pConnection->OnPong(std::bind(&CReplicationClient::DoPong, this, _1));
 #endif
-                    AHandler->Start(etIO);
+                    AHandler->Start(etServerIO);
 
                     pConnection->Session() = m_Session;
                     pConnection->URI() = m_URI;
@@ -761,34 +761,32 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationClient::Heartbeat() {
+        void CReplicationClient::Heartbeat(CDateTime Now) {
             if (Active() && Connected() && !Connection()->ClosedGracefully() && Connection()->Protocol() == pWebSocket) {
-                const auto now = UTC();
-
                 if (m_PongDateTime == 0)
-                    m_PongDateTime = now;
+                    m_PongDateTime = Now;
 
-                if (now - m_PongDateTime >= (CDateTime) 90 / SecsPerDay) {
+                if (Now - m_PongDateTime >= (CDateTime) 90 / SecsPerDay) {
                     DoTimeOut();
                     return;
                 }
 
-                if (now >= m_PingDateTime) {
-                    m_PingDateTime = now + (CDateTime) 60 / SecsPerDay; // 60 sec
+                if (Now >= m_PingDateTime) {
+                    m_PingDateTime = Now + (CDateTime) 60 / SecsPerDay; // 60 sec
                     Ping();
                 } else if (!m_Authorized) {
-                    if (now >= m_RegistrationDateTime) {
-                        m_RegistrationDateTime = now + (CDateTime) 30 / SecsPerDay; // 30 sec
+                    if (Now >= m_RegistrationDateTime) {
+                        m_RegistrationDateTime = Now + (CDateTime) 30 / SecsPerDay; // 30 sec
                         SendAuthorize();
                     }
                 } else {
-                    if (m_ApplyCount >= 0 && now >= m_ApplyDate) {
-                        m_ApplyDate = now + (CDateTime) 60 / MinsPerDay;
+                    if (m_ApplyCount >= 0 && Now >= m_ApplyDate) {
+                        m_ApplyDate = Now + (CDateTime) 60 / MinsPerDay;
                         SendApply();
                     }
 
-                    if (now >= m_HeartbeatDateTime) {
-                        m_HeartbeatDateTime = now + (CDateTime) m_HeartbeatInterval / SecsPerDay;
+                    if (Now >= m_HeartbeatDateTime) {
+                        m_HeartbeatDateTime = Now + (CDateTime) m_HeartbeatInterval / SecsPerDay;
                         DoHeartbeat();
                     }
                 }

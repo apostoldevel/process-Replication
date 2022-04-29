@@ -32,6 +32,9 @@ Author:
 #define CONFIG_SECTION_NAME "process/Replication"
 //----------------------------------------------------------------------------------------------------------------------
 
+#define PG_LISTEN_NAME "replication"
+//----------------------------------------------------------------------------------------------------------------------
+
 extern "C++" {
 
 namespace Apostol {
@@ -434,7 +437,7 @@ namespace Apostol {
 
             pClient->ClientName() = GApplication->Title();
             pClient->AutoConnect(false);
-            pClient->PollStack(PQClient().PollStack());
+            pClient->AllocateEventHandlers(PQClient());
 
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
             pClient->OnVerbose([this](auto && Sender, auto && AConnection, auto && AFormat, auto && args) { DoVerbose(Sender, AConnection, AFormat, args); });
@@ -549,7 +552,7 @@ namespace Apostol {
                         throw Delphi::Exception::EDBError(pResult->GetErrorMessage());
                     }
 
-                    APollQuery->Connection()->Listener(true);
+                    APollQuery->Connection()->Listeners().Add(PG_LISTEN_NAME);
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
                     APollQuery->Connection()->OnNotify([this](auto && APollQuery, auto && ANotify) { DoPostgresNotify(APollQuery, ANotify); });
 #else
@@ -566,7 +569,7 @@ namespace Apostol {
 
             CStringList SQL;
 
-            SQL.Add("LISTEN replication;");
+            SQL.Add("LISTEN " PG_LISTEN_NAME ";");
 
             try {
                 ExecSQL(SQL, nullptr, OnExecuted, OnException);
@@ -577,11 +580,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::CheckListen() {
-            int index = 0;
-            while (index < PQClient().PollManager().Count() && !PQClient().Connections(index)->Listener())
-                index++;
-
-            if (index == PQClient().PollManager().Count())
+            if (!PQClient().CheckListen(PG_LISTEN_NAME))
                 InitListen();
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -676,8 +675,8 @@ namespace Apostol {
             pTimer->Read(&exp, sizeof(uint64_t));
 
             try {
-                DoHeartbeat();
-                CModuleProcess::HeartbeatModules();
+                Heartbeat(AHandler->TimeStamp());
+                CModuleProcess::HeartbeatModules(AHandler->TimeStamp());
             } catch (Delphi::Exception::Exception &E) {
                 DoServerEventHandlerException(AHandler, E);
             }
@@ -1013,13 +1012,8 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::DoPostgresNotify(CPQConnection *AConnection, PGnotify *ANotify) {
-#ifdef _DEBUG
-            const auto& Info = AConnection->ConnInfo();
+            DebugNotify(AConnection, ANotify);
 
-            DebugMessage("[NOTIFY] [%d] [postgresql://%s@%s:%s/%s] [PID: %d] [%s] %s\n",
-                         AConnection->Socket(), Info["user"].c_str(), Info["host"].c_str(), Info["port"].c_str(), Info["dbname"].c_str(),
-                         ANotify->be_pid, ANotify->relname, ANotify->extra);
-#endif
             if (m_Status == psRunning) {
                 const CJSON Json(ANotify->extra);
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
@@ -1032,11 +1026,9 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationProcess::DoHeartbeat() {
-            const auto now = Now();
-
-            if ((now >= m_CheckDate)) {
-                m_CheckDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
+        void CReplicationProcess::Heartbeat(CDateTime Now) {
+            if ((Now >= m_CheckDate)) {
+                m_CheckDate = Now + (CDateTime) 30 / SecsPerDay; // 30 sec
                 m_Status = Process::psAuthorization;
 
                 CheckProviders();
@@ -1048,8 +1040,8 @@ namespace Apostol {
             }
 
             if (m_Status == Process::psAuthorized) {
-                if ((now >= m_FixedDate)) {
-                    m_FixedDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
+                if ((Now >= m_FixedDate)) {
+                    m_FixedDate = Now + (CDateTime) 30 / SecsPerDay; // 30 sec
                     m_Status = Process::psInProgress;
 
                     InitServer();
@@ -1057,8 +1049,8 @@ namespace Apostol {
             }
 
             if (m_Status == psRunning) {
-                if ((now >= m_FixedDate)) {
-                    m_FixedDate = now + (CDateTime) 30 / SecsPerDay; // 30 sec
+                if ((Now >= m_FixedDate)) {
+                    m_FixedDate = Now + (CDateTime) 30 / SecsPerDay; // 30 sec
 
                     for (int i = 0; i < m_ClientManager.Count(); ++i) {
                         auto pClient = m_ClientManager.Items(i);
@@ -1073,8 +1065,8 @@ namespace Apostol {
                     }
                 }
 
-                if (m_ApplyCount >= 0 && now >= m_ApplyDate) {
-                    m_ApplyDate = now + (CDateTime) 60 / MinsPerDay; // 60 min
+                if (m_ApplyCount >= 0 && Now >= m_ApplyDate) {
+                    m_ApplyDate = Now + (CDateTime) 60 / MinsPerDay; // 60 min
                     Apply();
                 }
 
