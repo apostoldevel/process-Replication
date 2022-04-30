@@ -327,7 +327,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CCustomReplicationClient::DoPong(CObject *Sender) {
-            m_PongDateTime = UTC();
+            m_PongDateTime = Now();
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -707,7 +707,7 @@ namespace Apostol {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallResult) {
                     m_ApplyCount++;
-                    m_ApplyDate = UTC() + (CDateTime) 1 / SecsPerDay;
+                    m_ApplyDate = Now() + (CDateTime) 1 / SecsPerDay;
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
