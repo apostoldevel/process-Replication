@@ -178,11 +178,16 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        bool CCustomReplicationClient::Connected() {
+        bool CCustomReplicationClient::Connected() const {
             if (Assigned(m_pConnection)) {
                 return m_pConnection->Connected();
             }
             return false;
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        bool CCustomReplicationClient::Authorized() const {
+            return m_Authorized;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -567,6 +572,7 @@ namespace Apostol {
         CReplicationClient::CReplicationClient(): CCustomReplicationClient() {
             m_ApplyCount = 0;
             m_ApplyDate = 0;
+            m_Proxy = false;
             m_OnHeartbeat = nullptr;
             m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;
@@ -577,6 +583,7 @@ namespace Apostol {
         CReplicationClient::CReplicationClient(const CLocation &URI): CCustomReplicationClient(URI) {
             m_ApplyCount = 0;
             m_ApplyDate = 0;
+            m_Proxy = false;
             m_OnHeartbeat = nullptr;
             m_OnTimeOut = nullptr;
             m_OnReplicationLog = nullptr;

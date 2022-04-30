@@ -254,7 +254,8 @@ namespace Apostol {
 
             void Initialize() override;
 
-            bool Connected();
+            bool Connected() const;
+            bool Authorized() const;
 
             void Ping();
 

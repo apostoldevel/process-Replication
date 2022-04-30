@@ -297,7 +297,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::FetchAccessToken(const CString &URI, const CString &Assertion,
-                                                 COnSocketExecuteEvent &&OnDone, COnSocketExceptionEvent &&OnFailed) {
+                COnSocketExecuteEvent &&OnDone, COnSocketExceptionEvent &&OnFailed) {
 
             auto OnRequest = [](CHTTPClient *Sender, CHTTPRequest *ARequest) {
 
@@ -344,8 +344,7 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationProcess::CreateAccessToken(const CProvider &Provider, const CString &Application,
-                                                  CStringList &Tokens) {
+        void CReplicationProcess::CreateAccessToken(const CProvider &Provider, const CString &Application, CStringList &Tokens) {
 
             auto OnDone = [this](CTCPConnection *Sender) {
 
@@ -979,7 +978,7 @@ namespace Apostol {
                     if (!pResult->GetIsNull(0, 0)) {
                         for (int i = 0; i < m_ClientManager.Count(); ++i) {
                             auto pClient = m_ClientManager.Items(i);
-                            if (pClient->Active() && pClient->Connected() && !pClient->Connection()->ClosedGracefully()) {
+                            if (pClient->Active() && pClient->Authorized() && !pClient->Connection()->ClosedGracefully()) {
                                 pClient->SendData(pResult->GetValue(0, 0));
                             }
                         }
