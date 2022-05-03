@@ -1015,12 +1015,14 @@ namespace Apostol {
 
             if (m_Status == psRunning) {
                 const CJSON Json(ANotify->extra);
+                if (Json["source"].AsString() != m_Origin.Host()) {
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
-                new CReplicationHandler(this, Json["id"].AsLong(), [this](auto &&Handler) { DoReplication(Handler); });
+                    new CReplicationHandler(this, Json["id"].AsLong(), [this](auto &&Handler) { DoReplication(Handler); });
 #else
-                new CReplicationHandler(this, Json["id"].AsLong(), std::bind(&CReplicationProcess::DoReplication, this, _1));
+                    new CReplicationHandler(this, Json["id"].AsLong(), std::bind(&CReplicationProcess::DoReplication, this, _1));
 #endif
-                UnloadQueue();
+                    UnloadQueue();
+                }
             }
         }
         //--------------------------------------------------------------------------------------------------------------
