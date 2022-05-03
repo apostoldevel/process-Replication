@@ -570,7 +570,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(): CCustomReplicationClient() {
-            m_ApplyCount = 0;
+            m_SendCount = 0;
             m_ApplyDate = 0;
             m_Proxy = false;
             m_OnHeartbeat = nullptr;
@@ -581,7 +581,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(const CLocation &URI): CCustomReplicationClient(URI) {
-            m_ApplyCount = 0;
+            m_SendCount = 0;
             m_ApplyDate = 0;
             m_Proxy = false;
             m_OnHeartbeat = nullptr;
@@ -593,7 +593,7 @@ namespace Apostol {
 
         void CReplicationClient::Reload() {
             m_Authorized = false;
-            m_ApplyCount = 0;
+            m_SendCount = 0;
             m_ApplyDate = 0;
             m_PongDateTime = 0;
             m_HeartbeatDateTime = 0;
@@ -655,12 +655,6 @@ namespace Apostol {
                 if (wsMessage.MessageTypeId == mtCallResult) {
                     if (wsMessage.Payload.HasOwnProperty("count")) {
                         const auto count = wsMessage.Payload["count"].AsInteger();
-
-                        m_ApplyCount -= count;
-                        if (m_ApplyCount < 0) {
-                            m_ApplyCount = 0;
-                        }
-
                         if (count > 0) {
                             m_ApplyDate = 0;
                         }
@@ -692,6 +686,7 @@ namespace Apostol {
                             DoCheckReplicationLog(caId.AsLong());
                         }
                     }
+                    PushData();
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
@@ -712,11 +707,15 @@ namespace Apostol {
 
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
-                if (wsMessage.MessageTypeId == mtCallResult) {
-                    m_ApplyCount++;
-                    m_ApplyDate = Now() + (CDateTime) 1 / SecsPerDay;
-                } else if (wsMessage.MessageTypeId == mtCallError) {
+                if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
+                }
+
+                m_SendCount--;
+                if (m_SendCount == 0) {
+                    m_ApplyDate = 0;
+                } else {
+                    m_ApplyDate = Now() + (CDateTime) 5 / SecsPerDay;
                 }
             };
 
@@ -742,6 +741,7 @@ namespace Apostol {
                 Message.Payload.Object().AddPair(Proxy, m_Proxy);
             }
 
+            m_SendCount++;
             SendMessage(Message, OnRequest);
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -768,6 +768,13 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CReplicationClient::PushData() {
+            for (int i = 0; i < Data().Count(); ++i) {
+                SendData(Data()[i]);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CReplicationClient::Heartbeat(CDateTime Now) {
             if (Active() && Connected() && !Connection()->ClosedGracefully() && Connection()->Protocol() == pWebSocket) {
                 if (m_PongDateTime == 0)
@@ -787,7 +794,7 @@ namespace Apostol {
                         SendAuthorize();
                     }
                 } else {
-                    if (m_ApplyCount >= 0 && Now >= m_ApplyDate) {
+                    if (Now >= m_ApplyDate) {
                         m_ApplyDate = Now + (CDateTime) 60 / MinsPerDay;
                         SendApply();
                     }

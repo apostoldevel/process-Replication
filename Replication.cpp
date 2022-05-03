@@ -980,6 +980,8 @@ namespace Apostol {
                             auto pClient = m_ClientManager.Items(i);
                             if (pClient->Active() && pClient->Authorized() && !pClient->Connection()->ClosedGracefully()) {
                                 pClient->SendData(pResult->GetValue(0, 0));
+                            } else {
+                                pClient->Data().Add(pResult->GetValue(0, 0));
                             }
                         }
                     }
@@ -1029,7 +1031,7 @@ namespace Apostol {
 
         void CReplicationProcess::Heartbeat(CDateTime Now) {
             if ((Now >= m_CheckDate)) {
-                m_CheckDate = Now + (CDateTime) 30 / SecsPerDay; // 30 sec
+                m_CheckDate = Now + (CDateTime) 5 / SecsPerDay; // 5 sec
                 m_Status = Process::psAuthorization;
 
                 CheckProviders();

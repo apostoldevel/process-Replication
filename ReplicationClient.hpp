@@ -332,7 +332,7 @@ namespace Apostol {
 
             CString m_Source;
 
-            int m_ApplyCount;
+            int m_SendCount;
 
             CDateTime m_ApplyDate;
 
@@ -345,6 +345,8 @@ namespace Apostol {
             COnReplicationClientCheckLog m_OnCheckReplicationLog;
 
             void Heartbeat(CDateTime Now) override;
+
+            void PushData();
 
         protected:
 
