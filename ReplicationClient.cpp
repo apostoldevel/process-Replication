@@ -373,7 +373,7 @@ namespace Apostol {
                     pConnection->OnPing(std::bind(&CReplicationClient::DoPing, this, _1));
                     pConnection->OnPong(std::bind(&CReplicationClient::DoPong, this, _1));
 #endif
-                    AHandler->Start(etServerIO);
+                    AHandler->Start(etIO);
 
                     pConnection->Session() = m_Session;
                     pConnection->URI() = m_URI;
