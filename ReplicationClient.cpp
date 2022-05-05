@@ -601,6 +601,15 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CReplicationClient::CheckCallError(const CWSMessage &Error, const CWSMessage &Message) {
+            if (Error.ErrorCode == 401) {
+                m_Authorized = false;
+                m_RegistrationDateTime = 0;
+                m_MessageList.Add(Message);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CReplicationClient::SendAuthorize() {
 
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
@@ -660,6 +669,7 @@ namespace Apostol {
                         }
                     }
                 } else if (wsMessage.MessageTypeId == mtCallError) {
+                    CheckCallError(wsMessage, AHandler->Message());
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
             };
@@ -686,7 +696,9 @@ namespace Apostol {
                             DoCheckReplicationLog(caId.AsLong());
                         }
                     }
+
                     PushData();
+                    PushMessageList();
                 } else if (wsMessage.MessageTypeId == mtCallError) {
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
@@ -708,6 +720,7 @@ namespace Apostol {
             auto OnRequest = [this](CReplicationMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
                 const auto &wsMessage = RequestToMessage(AWSConnection);
                 if (wsMessage.MessageTypeId == mtCallError) {
+                    CheckCallError(wsMessage, AHandler->Message());
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
 
@@ -753,6 +766,7 @@ namespace Apostol {
                 if (wsMessage.MessageTypeId == mtCallResult) {
                     DoReplicationLog(wsMessage.Payload);
                 } else if (wsMessage.MessageTypeId == mtCallError) {
+                    CheckCallError(wsMessage, AHandler->Message());
                     DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
                 }
             };
@@ -772,6 +786,14 @@ namespace Apostol {
             for (int i = 0; i < Data().Count(); ++i) {
                 SendData(Data()[i]);
             }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationClient::PushMessageList() {
+            for (int i = 0; i < m_MessageList.Count(); ++i) {
+                SendMessage(m_MessageList[i], true);
+            }
+            m_MessageList.Clear();
         }
         //--------------------------------------------------------------------------------------------------------------
 

@@ -338,15 +338,20 @@ namespace Apostol {
 
             bool m_Proxy;
 
+            TList<CWSMessage> m_MessageList;
+
             CNotifyEvent m_OnHeartbeat;
             CNotifyEvent m_OnTimeOut;
 
             COnReplicationClientLog m_OnReplicationLog;
             COnReplicationClientCheckLog m_OnCheckReplicationLog;
 
+            void CheckCallError(const CWSMessage &Error, const CWSMessage &Message);
+
             void Heartbeat(CDateTime Now) override;
 
             void PushData();
+            void PushMessageList();
 
         protected:
 
