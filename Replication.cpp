@@ -641,10 +641,11 @@ namespace Apostol {
                         relayId = StrToInt(pResult->GetValue(0, 0));
                     }
 
-                    auto pConnection = dynamic_cast<CReplicationConnection *> (APollQuery->Binding());
+                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
 
                     if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
-                        pConnection->ReplicationClient()->Replication(relayId);
+                        auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
+                        pClient->Replication(relayId);
                     }
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
@@ -778,10 +779,11 @@ namespace Apostol {
 
                     Apply();
 
-                    auto pConnection = dynamic_cast<CReplicationConnection *> (APollQuery->Binding());
+                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
 
                     if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
-                        pConnection->ReplicationClient()->Replication(relayId);
+                        auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
+                        pClient->Replication(relayId);
                     }
                 } catch (Delphi::Exception::Exception &E) {
                     DoError(E);
@@ -836,10 +838,10 @@ namespace Apostol {
                 CPQResult *pResult;
 
                 try {
-                    auto pConnection = dynamic_cast<CReplicationConnection *> (APollQuery->Binding());
+                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
 
                     if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
-                        auto pClient = pConnection->ReplicationClient();
+                        auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
 
                         for (int i = 0; i < APollQuery->Count(); i++) {
                             pResult = APollQuery->Results(i);
@@ -919,7 +921,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::DoClientConnected(CObject *Sender) {
-            auto pConnection = dynamic_cast<CReplicationConnection *>(Sender);
+            auto pConnection = dynamic_cast<CWebSocketClientConnection *>(Sender);
             if (pConnection != nullptr) {
                 auto pBinding = pConnection->Socket()->Binding();
                 if (pBinding != nullptr) {
@@ -936,7 +938,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::DoClientDisconnected(CObject *Sender) {
-            auto pConnection = dynamic_cast<CReplicationConnection *>(Sender);
+            auto pConnection = dynamic_cast<CWebSocketClientConnection *>(Sender);
             if (pConnection != nullptr) {
                 auto pBinding = pConnection->Socket()->Binding();
                 if (pBinding != nullptr) {
@@ -1081,7 +1083,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::DoWebSocketError(CTCPConnection *AConnection) {
-            auto pConnection = dynamic_cast<CReplicationConnection *> (AConnection);
+            auto pConnection = dynamic_cast<CWebSocketClientConnection *> (AConnection);
             auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
             auto pReply = pConnection->Reply();
 

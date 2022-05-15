@@ -37,7 +37,7 @@ namespace Apostol {
 
         //--------------------------------------------------------------------------------------------------------------
 
-        typedef std::function<void (CCustomReplicationClient *Sender, const CWSMessage &Request, CWSMessage &Response)> COnReplicationActionHandlerEvent;
+        typedef std::function<void (CCustomWebSocketClient *Sender, const CWSMessage &Request, CWSMessage &Response)> COnReplicationActionHandlerEvent;
         //--------------------------------------------------------------------------------------------------------------
 
         class CReplicationActionHandler: CObject {
@@ -55,7 +55,7 @@ namespace Apostol {
 
             bool Allow() const { return m_Allow; };
 
-            void Handler(CCustomReplicationClient *Sender, const CWSMessage &Request, CWSMessage &Response) {
+            void Handler(CCustomWebSocketClient *Sender, const CWSMessage &Request, CWSMessage &Response) {
                 if (m_Allow && m_Handler)
                     m_Handler(Sender, Request, Response);
             }
