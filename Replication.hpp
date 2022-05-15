@@ -184,18 +184,13 @@ namespace Apostol {
 
             void Heartbeat(CDateTime Now);
 
-            void FetchAccessToken(const CString &URI, const CString &Assertion,
-                COnSocketExecuteEvent && OnDone, COnSocketExceptionEvent && OnFailed = nullptr);
             void CreateAccessToken(const CProvider &Provider, const CString &Application, CStringList &Tokens);
-
-            static CString CreateToken(const CProvider &Provider, const CString &Application);
 
             void OnReplication(CObject *Sender, const CWSMessage &Request, CWSMessage &Response);
 
         protected:
 
             void DoTimer(CPollEventHandler *AHandler) override;
-
 
             void DoReplication(CReplicationHandler *AHandler);
 

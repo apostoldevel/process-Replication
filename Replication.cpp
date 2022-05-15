@@ -25,9 +25,6 @@ Author:
 #include "Replication.hpp"
 //----------------------------------------------------------------------------------------------------------------------
 
-#include "jwt.h"
-//----------------------------------------------------------------------------------------------------------------------
-
 #define SERVICE_APPLICATION_NAME "service"
 #define CONFIG_SECTION_NAME "process/Replication"
 //----------------------------------------------------------------------------------------------------------------------
@@ -284,66 +281,6 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CString CReplicationProcess::CreateToken(const CProvider &Provider, const CString &Application) {
-            auto token = jwt::create()
-                    .set_issuer(Provider.Issuer(Application))
-                    .set_audience(Provider.ClientId(Application))
-                    .set_issued_at(std::chrono::system_clock::now())
-                    .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{3600})
-                    .sign(jwt::algorithm::hs256{std::string(Provider.Secret(Application))});
-
-            return token;
-        }
-        //--------------------------------------------------------------------------------------------------------------
-
-        void CReplicationProcess::FetchAccessToken(const CString &URI, const CString &Assertion,
-                COnSocketExecuteEvent &&OnDone, COnSocketExceptionEvent &&OnFailed) {
-
-            auto OnRequest = [](CHTTPClient *Sender, CHTTPRequest *ARequest) {
-
-                const auto &token_uri = Sender->Data()["token_uri"];
-                const auto &grant_type = Sender->Data()["grant_type"];
-                const auto &assertion = Sender->Data()["assertion"];
-
-                ARequest->Content = _T("grant_type=");
-                ARequest->Content << CHTTPServer::URLEncode(grant_type);
-
-                ARequest->Content << _T("&assertion=");
-                ARequest->Content << CHTTPServer::URLEncode(assertion);
-
-                CHTTPRequest::Prepare(ARequest, _T("POST"), token_uri.c_str(), _T("application/x-www-form-urlencoded"));
-
-                DebugRequest(ARequest);
-            };
-
-            auto OnException = [this](CTCPConnection *Sender, const Delphi::Exception::Exception &E) {
-
-                auto pConnection = dynamic_cast<CHTTPClientConnection *> (Sender);
-                auto pClient = dynamic_cast<CHTTPClient *> (pConnection->Client());
-
-                DebugReply(pConnection->Reply());
-
-                m_FixedDate = Now() + (CDateTime) 60 / SecsPerDay;
-
-                Log()->Error(APP_LOG_ERR, 0, "[%s:%d] %s", pClient->Host().c_str(), pClient->Port(), E.what());
-            };
-
-            CLocation token_uri(URI);
-
-            auto pClient = GetClient(token_uri.hostname, token_uri.port);
-
-            pClient->Data().Values("token_uri", token_uri.pathname);
-            pClient->Data().Values("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
-            pClient->Data().Values("assertion", Assertion);
-
-            pClient->OnRequest(OnRequest);
-            pClient->OnExecute(static_cast<COnSocketExecuteEvent &&>(OnDone));
-            pClient->OnException(OnFailed == nullptr ? OnException : static_cast<COnSocketExceptionEvent &&>(OnFailed));
-
-            pClient->Active(true);
-        }
-        //--------------------------------------------------------------------------------------------------------------
-
         void CReplicationProcess::CreateAccessToken(const CProvider &Provider, const CString &Application, CStringList &Tokens) {
 
             auto OnDone = [this](CTCPConnection *Sender) {
@@ -370,15 +307,19 @@ namespace Apostol {
                 return true;
             };
 
+            auto OnHTTPClient = [this](const CLocation &URI) {
+                return GetClient(URI.hostname, URI.port);
+            };
+
             CString server_uri(m_Config["auth"]);
 
             const auto &token_uri = Provider.TokenURI(Application);
-            const auto &service_token = CreateToken(Provider, Application);
+            const auto &service_token = CToken::CreateToken(Provider, Application);
 
             Tokens.Values("service_token", service_token);
 
             if (!token_uri.IsEmpty()) {
-                FetchAccessToken(token_uri.front() == '/' ? server_uri + token_uri : token_uri, service_token, OnDone);
+                CToken::FetchAccessToken(token_uri.front() == '/' ? server_uri + token_uri : token_uri, service_token, OnHTTPClient, OnDone);
             }
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -440,9 +381,9 @@ namespace Apostol {
 
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
             pClient->OnVerbose([this](auto && Sender, auto && AConnection, auto && AFormat, auto && args) { DoVerbose(Sender, AConnection, AFormat, args); });
-            pClient->OnWebSocketError([this](auto && AConnection) { DoWebSocketError(AConnection); });
             pClient->OnException([this](auto && AConnection, auto && AException) { DoException(AConnection, AException); });
             pClient->OnEventHandlerException([this](auto && AHandler, auto && AException) { DoServerEventHandlerException(AHandler, AException); });
+            pClient->OnWebSocketError([this](auto && AConnection) { DoWebSocketError(AConnection); });
             pClient->OnConnected([this](auto && Sender) { DoClientConnected(Sender); });
             pClient->OnDisconnected([this](auto && Sender) { DoClientDisconnected(Sender); });
             pClient->OnNoCommandHandler([this](auto && Sender, auto && AData, auto && AConnection) { DoNoCommandHandler(Sender, AData, AConnection); });
@@ -454,9 +395,9 @@ namespace Apostol {
             pClient->OnCheckReplicationLog([this](auto && Sender, auto && RelayId) { DoClientCheckReplicationLog(Sender, RelayId); });
 #else
             pClient->OnVerbose(std::bind(&CReplicationProcess::DoVerbose, this, _1, _2, _3, _4));
-            pClient->OnWebSocketError(std::bind(&CReplicationProcess::DoWebSocketError, this, _1));
             pClient->OnException(std::bind(&CReplicationProcess::DoException, this, _1, _2));
             pClient->OnEventHandlerException(std::bind(&CReplicationProcess::DoServerEventHandlerException, this, _1, _2));
+            pClient->OnWebSocketError(std::bind(&CReplicationProcess::DoWebSocketError, this, _1));
             pClient->OnConnected(std::bind(&CReplicationProcess::DoClientConnected, this, _1));
             pClient->OnDisconnected(std::bind(&CReplicationProcess::DoClientDisconnected, this, _1));
             pClient->OnNoCommandHandler(std::bind(&CReplicationProcess::DoNoCommandHandler, this, _1, _2, _3));
@@ -1113,8 +1054,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::DoException(CTCPConnection *AConnection, const Delphi::Exception::Exception &E) {
-            Log()->Error(APP_LOG_ERR, 0, "%s", E.what());
-            sig_reopen = 1;
+            Log()->Error(APP_LOG_ERR, 0, "Replication: %s", E.what());
         }
         //--------------------------------------------------------------------------------------------------------------
 
