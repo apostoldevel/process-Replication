@@ -172,9 +172,7 @@ namespace Apostol {
 
             SetUser(Config()->User(), Config()->Group());
 
-            InitializePQClient(Application()->Title(), 1, Config()->PostgresPollMin());
-
-            PQClientStart(_T("helper"));
+            InitializePQClients(Application()->Title(), 1, Config()->PostgresPollMin());
 
             SigProcMask(SIG_UNBLOCK, SigAddSet(&set));
 
@@ -184,17 +182,19 @@ namespace Apostol {
 
         void CReplicationProcess::AfterRun() {
             CApplicationProcess::AfterRun();
-            PQClientStop();
+            PQClientsStop();
         }
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::Run() {
+            auto &PQClient = PQClientStart(_T("helper"));
+
             while (!sig_exiting) {
 
                 Log()->Debug(APP_LOG_DEBUG_EVENT, _T("replication process cycle"));
 
                 try {
-                    PQClient().Wait();
+                    PQClient.Wait();
                 } catch (Delphi::Exception::Exception &E) {
                     Log()->Error(APP_LOG_ERR, 0, "%s", E.what());
                 }
@@ -377,7 +377,7 @@ namespace Apostol {
 
             pClient->ClientName() = GApplication->Title();
             pClient->AutoConnect(false);
-            pClient->AllocateEventHandlers(PQClient());
+            pClient->AllocateEventHandlers(GetPQClient());
 
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
             pClient->OnVerbose([this](auto && Sender, auto && AConnection, auto && AFormat, auto && args) { DoVerbose(Sender, AConnection, AFormat, args); });
@@ -520,7 +520,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::CheckListen() {
-            if (!PQClient().CheckListen(PG_LISTEN_NAME))
+            if (!GetPQClient().CheckListen(PG_LISTEN_NAME))
                 InitListen();
         }
         //--------------------------------------------------------------------------------------------------------------
