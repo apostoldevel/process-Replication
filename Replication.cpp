@@ -839,8 +839,6 @@ namespace Apostol {
         void CReplicationProcess::DoClientTimeOut(CObject *Sender) {
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
             chASSERT(pClient);
-            pClient->SwitchConnection(nullptr);
-            pClient->Reload();
             m_FixedDate = 0;
         }
         //--------------------------------------------------------------------------------------------------------------

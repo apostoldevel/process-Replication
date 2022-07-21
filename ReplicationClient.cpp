@@ -286,12 +286,14 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationClient::Heartbeat(CDateTime Now) {
-            if (Active() && Connected() && !Connection()->ClosedGracefully() && Connection()->Protocol() == pWebSocket) {
+            if ((Connection()->Protocol() == pWebSocket) && Active() && Connected()) {
                 if (m_PongDateTime == 0)
                     m_PongDateTime = Now;
 
                 if (Now - m_PongDateTime >= (CDateTime) 90 / SecsPerDay) {
                     DoTimeOut();
+                    SwitchConnection(nullptr);
+                    Reload();
                     return;
                 }
 
