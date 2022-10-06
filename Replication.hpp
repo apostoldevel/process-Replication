@@ -132,6 +132,8 @@ namespace Apostol {
 
             CReplicationMode m_Mode;
 
+            size_t m_RelayId;
+
             int m_ApplyCount;
 
             bool m_NeedCheckReplicationLog;
@@ -168,7 +170,9 @@ namespace Apostol {
             void InitListen();
 
             void Apply();
-            void CheckRelayLog(CReplicationClient *AClient);
+            void ApplyRelay(CWebSocketClientConnection *AConnection, size_t RelayId);
+            void CheckRelayLog(CWebSocketClientConnection *AConnection);
+            void Replication(CWebSocketClientConnection *AConnection) const;
 
             void InitActions(CReplicationClient *AClient);
             void InitServer();
@@ -180,11 +184,10 @@ namespace Apostol {
             void DeleteHandler(CReplicationHandler *AHandler);
 
             void CheckProviders();
-            void FetchProviders();
 
             void Heartbeat(CDateTime Now);
 
-            void CreateAccessToken(const CProvider &Provider, const CString &Application, CStringList &Tokens);
+            void CreateAccessToken(CProvider &Provider, const CString &Application, CStringList &Tokens);
 
             void OnReplication(CObject *Sender, const CWSMessage &Request, CWSMessage &Response);
 
@@ -209,7 +212,8 @@ namespace Apostol {
             void DoClientError(CObject *Sender, int Code, const CString &Message);
 
             void DoClientReplicationLog(CObject *Sender, const CJSON &Payload);
-            void DoClientCheckReplicationLog(CObject *Sender, unsigned long RelayId);
+            void DoClientReplicationCheckLog(CObject *Sender, unsigned long Id);
+            void DoClientReplicationCheckRelay(CObject *Sender, unsigned long RelayId);
 
             void DoException(CTCPConnection *AConnection, const Delphi::Exception::Exception &E);
             bool DoExecute(CTCPConnection *AConnection) override;

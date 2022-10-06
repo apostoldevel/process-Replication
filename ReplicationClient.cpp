@@ -47,6 +47,8 @@ namespace Apostol {
         CReplicationClient::CReplicationClient(): CCustomWebSocketClient() {
             m_SendCount = 0;
             m_ApplyDate = 0;
+            m_MaxLogId = 0;
+            m_MaxRelayId = 0;
             m_PingDateTime = 0;
             m_PongDateTime = 0;
             m_HeartbeatDateTime = 0;
@@ -55,13 +57,16 @@ namespace Apostol {
             m_Proxy = false;
             m_Authorized = false;
             m_OnReplicationLog = nullptr;
-            m_OnCheckReplicationLog = nullptr;
+            m_OnReplicationCheckLog = nullptr;
+            m_OnReplicationCheckRelay = nullptr;
         }
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationClient::CReplicationClient(const CLocation &URI): CCustomWebSocketClient(URI) {
             m_SendCount = 0;
             m_ApplyDate = 0;
+            m_MaxLogId = 0;
+            m_MaxRelayId = 0;
             m_PingDateTime = 0;
             m_PongDateTime = 0;
             m_HeartbeatDateTime = 0;
@@ -70,7 +75,8 @@ namespace Apostol {
             m_Proxy = false;
             m_Authorized = false;
             m_OnReplicationLog = nullptr;
-            m_OnCheckReplicationLog = nullptr;
+            m_OnReplicationCheckLog = nullptr;
+            m_OnReplicationCheckRelay = nullptr;
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -173,6 +179,33 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
+        void CReplicationClient::SendGetMaxLog() {
+
+            auto OnRequest = [this](CWebSocketMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
+                const auto &wsMessage = RequestToMessage(AWSConnection);
+                if (wsMessage.MessageTypeId == mtCallResult) {
+                    if (wsMessage.Payload.HasOwnProperty("id")) {
+                        const auto &caId = wsMessage.Payload["id"];
+                        if (caId.AsString() != "null") {
+                            m_MaxLogId = caId.AsLong();
+                            DoReplicationCheckLog(m_MaxLogId);
+                        }
+                    }
+                } else if (wsMessage.MessageTypeId == mtCallError) {
+                    DoError(wsMessage.ErrorCode, wsMessage.ErrorMessage);
+                }
+            };
+
+            CWSMessage Message;
+
+            Message.MessageTypeId = WSProtocol::mtCall;
+            Message.UniqueId = GenUniqueId();
+            Message.Action = "/replication/log/max";
+
+            SendMessage(Message, OnRequest);
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
         void CReplicationClient::SendGetMaxRelay() {
 
             auto OnRequest = [this](CWebSocketMessageHandler *AHandler, CWebSocketConnection *AWSConnection) {
@@ -181,7 +214,8 @@ namespace Apostol {
                     if (wsMessage.Payload.HasOwnProperty("id")) {
                         const auto &caId = wsMessage.Payload["id"];
                         if (caId.AsString() != "null") {
-                            DoCheckReplicationLog(caId.AsLong());
+                            m_MaxRelayId = caId.AsLong();
+                            DoReplicationCheckRelay(m_MaxRelayId);
                         }
                     }
 
@@ -264,7 +298,7 @@ namespace Apostol {
             Message.MessageTypeId = WSProtocol::mtCall;
             Message.UniqueId = GenUniqueId();
             Message.Action = "/replication/log";
-            Message.Payload = CString().Format(R"({"id": %d, "source": "%s"})", RelayId, m_Source.c_str());
+            Message.Payload = CString().Format(R"({"id": %d, "source": "%s", "reclimit": 1})", RelayId, m_Source.c_str());
 
             SendMessage(Message, OnRequest);
         }
@@ -308,7 +342,10 @@ namespace Apostol {
                 } else {
                     if (Now >= m_ApplyDate) {
                         m_ApplyDate = Now + (CDateTime) 60 / MinsPerDay;
+
                         SendApply();
+                        SendGetMaxLog();
+                        SendGetMaxRelay();
                     }
 
                     if (Now >= m_HeartbeatDateTime) {
@@ -337,9 +374,16 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationClient::DoCheckReplicationLog(unsigned long RelayId) {
-            if (m_OnCheckReplicationLog != nullptr) {
-                m_OnCheckReplicationLog(this, RelayId);
+        void CReplicationClient::DoReplicationCheckLog(unsigned long Id) {
+            if (m_OnReplicationCheckLog != nullptr) {
+                m_OnReplicationCheckLog(this, Id);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationClient::DoReplicationCheckRelay(unsigned long RelayId) {
+            if (m_OnReplicationCheckRelay != nullptr) {
+                m_OnReplicationCheckRelay(this, RelayId);
             }
         }
 

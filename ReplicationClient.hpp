@@ -38,7 +38,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         typedef std::function<void (CObject *Sender, const CJSON &Payload)> COnReplicationClientLog;
-        typedef std::function<void (CObject *Sender, unsigned long RelayId)> COnReplicationClientCheckLog;
+        typedef std::function<void (CObject *Sender, unsigned long Id)> COnReplicationClientCheckLog;
         //--------------------------------------------------------------------------------------------------------------
 
         class CReplicationClient: public CCustomWebSocketClient {
@@ -48,6 +48,9 @@ namespace Apostol {
             CString m_Secret;
 
             int m_SendCount;
+
+            unsigned long m_MaxLogId;
+            unsigned long m_MaxRelayId;
 
             CDateTime m_ApplyDate;
 
@@ -64,7 +67,8 @@ namespace Apostol {
             TList<CWSMessage> m_MessageList;
 
             COnReplicationClientLog m_OnReplicationLog;
-            COnReplicationClientCheckLog m_OnCheckReplicationLog;
+            COnReplicationClientCheckLog m_OnReplicationCheckLog;
+            COnReplicationClientCheckLog m_OnReplicationCheckRelay;
 
             void CheckCallError(const CWSMessage &Error, const CWSMessage &Message);
 
@@ -79,7 +83,8 @@ namespace Apostol {
             void DoPong(CObject *Sender) override;
 
             void DoReplicationLog(const CJSON &Payload);
-            void DoCheckReplicationLog(unsigned long RelayId);
+            void DoReplicationCheckLog(unsigned long Id);
+            void DoReplicationCheckRelay(unsigned long RelayId);
 
         public:
 
@@ -91,12 +96,16 @@ namespace Apostol {
             void SendAuthorize();
             void SendSubscribe();
             void SendApply();
+            void SendGetMaxLog();
             void SendGetMaxRelay();
             void SendData(const CString &Data);
 
             void Replication(size_t RelayId);
 
             void Reload();
+
+            unsigned long MaxLogId() const { return m_MaxLogId; }
+            unsigned long MaxRelayId() const { return m_MaxRelayId; }
 
             CString &Source() { return m_Source; }
             const CString &Source() const { return m_Source; }
@@ -110,8 +119,11 @@ namespace Apostol {
             const COnReplicationClientLog &OnReplicationLog() const { return m_OnReplicationLog; }
             void OnReplicationLog(COnReplicationClientLog && Value) { m_OnReplicationLog = Value; }
 
-            const COnReplicationClientCheckLog &OnCheckReplicationLog() const { return m_OnCheckReplicationLog; }
-            void OnCheckReplicationLog(COnReplicationClientCheckLog && Value) { m_OnCheckReplicationLog = Value; }
+            const COnReplicationClientCheckLog &OnReplicationCheckLog() const { return m_OnReplicationCheckLog; }
+            void OnReplicationCheckLog(COnReplicationClientCheckLog && Value) { m_OnReplicationCheckLog = Value; }
+
+            const COnReplicationClientCheckLog &OnReplicationCheckRelay() const { return m_OnReplicationCheckRelay; }
+            void OnReplicationCheckRelay(COnReplicationClientCheckLog && Value) { m_OnReplicationCheckRelay = Value; }
 
         };
 

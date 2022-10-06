@@ -143,6 +143,8 @@ namespace Apostol {
         CReplicationProcess::CReplicationProcess(CCustomProcess *AParent, CApplication *AApplication):
                 inherited(AParent, AApplication, ptCustom, "replication process") {
 
+            m_RelayId = 0;
+
             m_CheckDate = 0;
             m_FixedDate = 0;
             m_ApplyDate = 0;
@@ -281,9 +283,9 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationProcess::CreateAccessToken(const CProvider &Provider, const CString &Application, CStringList &Tokens) {
+        void CReplicationProcess::CreateAccessToken(CProvider &Provider, const CString &Application, CStringList &Tokens) {
 
-            auto OnDone = [this](CTCPConnection *Sender) {
+            auto OnDone = [this, &Provider](CTCPConnection *Sender) {
 
                 auto pConnection = dynamic_cast<CHTTPClientConnection *> (Sender);
                 auto pReply = pConnection->Reply();
@@ -302,12 +304,15 @@ namespace Apostol {
                     m_Status = psAuthorized;
 
                     m_CheckDate = Now() + (CDateTime) 55 / MinsPerDay; // 55 min
+
+                    Provider.KeyStatus(ksSuccess);
                 }
 
                 return true;
             };
 
-            auto OnHTTPClient = [this](const CLocation &URI) {
+            auto OnHTTPClient = [this, &Provider](const CLocation &URI) {
+                Provider.KeyStatus(ksFailed);
                 return GetClient(URI.hostname, URI.port);
             };
 
@@ -327,24 +332,13 @@ namespace Apostol {
         void CReplicationProcess::CheckProviders() {
             for (int i = 0; i < m_Providers.Count(); i++) {
                 auto& Provider = m_Providers[i].Value();
-                if (Provider.KeyStatus() != ksUnknown) {
-                    Provider.KeyStatusTime(Now());
-                    Provider.KeyStatus(ksUnknown);
-                }
-            }
-        }
-        //--------------------------------------------------------------------------------------------------------------
-
-        void CReplicationProcess::FetchProviders() {
-            for (int i = 0; i < m_Providers.Count(); i++) {
-                auto& Provider = m_Providers[i].Value();
                 for (int j = 0; j < Provider.Applications().Count(); ++j) {
                     const auto &app = Provider.Applications().Members(j);
                     if (app["type"].AsString() == "service_account") {
-                        if (Provider.KeyStatus() == ksUnknown) {
+                        if (Provider.KeyStatus() != ksFetching) {
                             Provider.KeyStatusTime(Now());
+                            Provider.KeyStatus(ksFetching);
                             CreateAccessToken(Provider, app.String(), m_Tokens[Provider.Name()]);
-                            Provider.KeyStatus(ksSuccess);
                         }
                     }
                 }
@@ -392,7 +386,8 @@ namespace Apostol {
             pClient->OnHeartbeat([this](auto && Sender) { DoClientHeartbeat(Sender); });
             pClient->OnTimeOut([this](auto && Sender) { DoClientTimeOut(Sender); });
             pClient->OnReplicationLog([this](auto && Sender, auto && Payload) { DoClientReplicationLog(Sender, Payload); });
-            pClient->OnCheckReplicationLog([this](auto && Sender, auto && RelayId) { DoClientCheckReplicationLog(Sender, RelayId); });
+            pClient->OnReplicationCheckLog([this](auto && Sender, auto && Id) { DoClientReplicationCheckLog(Sender, Id); });
+            pClient->OnReplicationCheckRelay([this](auto && Sender, auto && RelayId) { DoClientReplicationCheckRelay(Sender, RelayId); });
 #else
             pClient->OnVerbose(std::bind(&CReplicationProcess::DoVerbose, this, _1, _2, _3, _4));
             pClient->OnException(std::bind(&CReplicationProcess::DoException, this, _1, _2));
@@ -406,7 +401,8 @@ namespace Apostol {
             pClient->OnHeartbeat(std::bind(&CReplicationProcess::DoClientHeartbeat, this, _1));
             pClient->OnTimeOut(std::bind(&CReplicationProcess::DoClientTimeOut, this, _1));
             pClient->OnReplicationLog(std::bind(&CReplicationProcess::DoClientReplicationLog, this, _1, _2));
-            pClient->OnCheckReplicationLog(std::bind(&CReplicationProcess::DoClientCheckReplicationLog, this, _1, _2));
+            pClient->OnReplicationCheckLog(std::bind(&CReplicationProcess::DoClientReplicationCheckLog, this, _1, _2));
+            pClient->OnReplicationCheckRelay(std::bind(&CReplicationProcess::DoClientReplicationCheckRelay, this, _1, _2));
 #endif
             return pClient;
         }
@@ -499,12 +495,12 @@ namespace Apostol {
                     APollQuery->Connection()->OnNotify(std::bind(&CReplicationProcess::DoPostgresNotify, this, _1, _2));
 #endif
                 } catch (Delphi::Exception::Exception &E) {
-                    DoError(E);
+                    DoDataBaseError(E);
                 }
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoDataBaseError(E);
+                DoError(E);
             };
 
             CStringList SQL;
@@ -530,6 +526,7 @@ namespace Apostol {
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 try {
                     auto pResult = APollQuery->Results(0);
+
                     if (pResult->ExecStatus() != PGRES_TUPLES_OK) {
                         throw Delphi::Exception::EDBError(pResult->GetErrorMessage());
                     }
@@ -543,23 +540,20 @@ namespace Apostol {
                     if (m_ApplyCount < 0) {
                         m_ApplyCount = 0;
                     }
-
-                    if (count > 0) {
-                        m_ApplyDate = 0;
-                    }
                 } catch (Delphi::Exception::Exception &E) {
                     DoDataBaseError(E);
                 }
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoDataBaseError(E);
+                DoError(E);
             };
 
             CStringList SQL;
 
+            api::replication_apply(SQL, m_Origin.Host());
+
             try {
-                api::replication_apply(SQL, m_Origin.Host());
                 ExecSQL(SQL, nullptr, OnExecuted, OnException);
             } catch (Delphi::Exception::Exception &E) {
                 DoError(E);
@@ -567,10 +561,49 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationProcess::CheckRelayLog(CReplicationClient *AClient) {
+        void CReplicationProcess::ApplyRelay(CWebSocketClientConnection *AConnection, size_t RelayId) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 try {
+                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
+                    auto pResult = APollQuery->Results(0);
+
+                    if (pResult->ExecStatus() != PGRES_TUPLES_OK) {
+                        throw Delphi::Exception::EDBError(pResult->GetErrorMessage());
+                    }
+
+                    m_ApplyCount--;
+                    if (m_ApplyCount < 0) {
+                        m_ApplyCount = 0;
+                    }
+
+                    Replication(pConnection);
+                } catch (Delphi::Exception::Exception &E) {
+                    DoDataBaseError(E);
+                }
+            };
+
+            auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
+                DoError(E);
+            };
+
+            CStringList SQL;
+
+            api::replication_apply_relay(SQL, m_Origin.Host(), RelayId);
+
+            try {
+                ExecSQL(SQL, AConnection, OnExecuted, OnException);
+            } catch (Delphi::Exception::Exception &E) {
+                DoError(E);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationProcess::CheckRelayLog(CWebSocketClientConnection *AConnection) {
+
+            auto OnExecuted = [this](CPQPollQuery *APollQuery) {
+                try {
+                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
                     auto pResult = APollQuery->Results(0);
 
                     if (pResult->ExecStatus() != PGRES_TUPLES_OK) {
@@ -582,19 +615,17 @@ namespace Apostol {
                         relayId = StrToInt(pResult->GetValue(0, 0));
                     }
 
-                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
-
-                    if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
-                        auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
-                        pClient->Replication(relayId);
+                    if (m_RelayId < relayId) {
+                        m_RelayId = relayId;
+                        Replication(pConnection);
                     }
                 } catch (Delphi::Exception::Exception &E) {
-                    DoError(E);
+                    DoDataBaseError(E);
                 }
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoDataBaseError(E);
+                DoError(E);
             };
 
             CStringList SQL;
@@ -602,9 +633,17 @@ namespace Apostol {
             api::get_max_relay_id(SQL, m_Origin.Host());
 
             try {
-                ExecSQL(SQL, AClient->Connection(), OnExecuted, OnException);
+                ExecSQL(SQL, AConnection, OnExecuted, OnException);
             } catch (Delphi::Exception::Exception &E) {
                 DoError(E);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationProcess::Replication(CWebSocketClientConnection *AConnection) const {
+            if (AConnection != nullptr && AConnection->Connected()) {
+                auto pClient = dynamic_cast<CReplicationClient *> (AConnection->Client());
+                pClient->Replication(m_RelayId);
             }
         }
         //--------------------------------------------------------------------------------------------------------------
@@ -658,26 +697,23 @@ namespace Apostol {
                     }
 
                     m_ApplyCount++;
-                    m_ApplyDate = Now() + (CDateTime) 1 / SecsPerDay;
+                    m_ApplyDate = 0;
                 } catch (Delphi::Exception::Exception &E) {
-                    DoError(E);
+                    DoDataBaseError(E);
                 }
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoDataBaseError(E);
+                DoError(E);
             };
 
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
-
-            chASSERT(pClient);
 
             CStringList SQL;
 
             if (Request.Payload.IsObject()) {
                 const auto &caObject = Request.Payload.Object();
-                const auto &caSource = caObject["source"].AsString();
-                if (caSource != m_Source) {
+                if (caObject["source"].AsString() != m_Source) {
                     api::add_to_relay_log(SQL, m_Origin.Host(), caObject["id"].AsLong(),
                                           caObject["datetime"].AsString(),
                                           caObject["action"].AsString(), caObject["schema"].AsString(),
@@ -702,7 +738,9 @@ namespace Apostol {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 CPQResult *pResult;
-                size_t relayId = 0;
+                int count = 0;
+
+                auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
 
                 try {
                     for (int i = 0; i < APollQuery->Count(); i++) {
@@ -713,31 +751,32 @@ namespace Apostol {
                         }
 
                         if (!pResult->GetIsNull(0, 0)) {
-                            relayId = StrToInt(pResult->GetValue(0, 0));
-                            m_ApplyCount++;
+                            m_RelayId = StrToInt(pResult->GetValue(0, 0));
+                            count++;
                         }
                     }
 
-                    Apply();
+                    m_ApplyCount += count;
 
-                    auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
-
-                    if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
-                        auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
-                        pClient->Replication(relayId);
+                    if (count == 1) {
+                        ApplyRelay(pConnection, m_RelayId);
+                    } else {
+                        Apply();
+                        Replication(pConnection);
                     }
                 } catch (Delphi::Exception::Exception &E) {
-                    DoError(E);
+                    Apply();
+                    Replication(pConnection);
+                    DoDataBaseError(E);
                 }
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoDataBaseError(E);
+                DoError(E);
             };
 
             auto Add = [this](CStringList &SQL, const CJSONObject &Object) {
-                const auto &caSource = Object["source"].AsString();
-                if (caSource != m_Source) {
+                if (Object["source"].AsString() != m_Source) {
                     api::add_to_relay_log(SQL, m_Origin.Host(), Object["id"].AsLong(), Object["datetime"].AsString(),
                                           Object["action"].AsString(), Object["schema"].AsString(),
                                           Object["name"].AsString(), Object["key"].ToString(),
@@ -762,6 +801,7 @@ namespace Apostol {
             }
 
             if (SQL.Count() == 0) {
+                pClient->SendGetMaxLog();
                 return;
             }
 
@@ -773,7 +813,13 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationProcess::DoClientCheckReplicationLog(CObject *Sender, unsigned long RelayId) {
+        void CReplicationProcess::DoClientReplicationCheckLog(CObject *Sender, unsigned long Id) {
+            auto pClient = dynamic_cast<CReplicationClient *> (Sender);
+            chASSERT(pClient);
+        }
+        //--------------------------------------------------------------------------------------------------------------
+
+        void CReplicationProcess::DoClientReplicationCheckRelay(CObject *Sender, unsigned long RelayId) {
 
             auto OnExecuted = [this](CPQPollQuery *APollQuery) {
                 CPQResult *pResult;
@@ -781,7 +827,7 @@ namespace Apostol {
                 try {
                     auto pConnection = dynamic_cast<CWebSocketClientConnection *> (APollQuery->Binding());
 
-                    if (pConnection != nullptr && !pConnection->ClosedGracefully()) {
+                    if (pConnection != nullptr && pConnection->Connected()) {
                         auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
 
                         for (int i = 0; i < APollQuery->Count(); i++) {
@@ -798,12 +844,12 @@ namespace Apostol {
                         }
                     }
                 } catch (Delphi::Exception::Exception &E) {
-                    DoError(E);
+                    DoDataBaseError(E);
                 }
             };
 
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
-                DoDataBaseError(E);
+                DoError(E);
             };
 
             if (m_Status == psRunning && m_Mode == rmMaster) {
@@ -827,8 +873,6 @@ namespace Apostol {
         void CReplicationProcess::DoClientHeartbeat(CObject *Sender) {
             auto pClient = dynamic_cast<CReplicationClient *> (Sender);
             chASSERT(pClient);
-
-            CheckRelayLog(pClient);
 
             if (m_NeedCheckReplicationLog) {
                 pClient->SendGetMaxRelay();
@@ -936,6 +980,7 @@ namespace Apostol {
             auto OnException = [this](CPQPollQuery *APollQuery, const Delphi::Exception::Exception &E) {
                 auto pHandler = dynamic_cast<CReplicationHandler *> (APollQuery->Binding());
                 DeleteHandler(pHandler);
+                DoError(E);
             };
 
             CStringList SQL;
@@ -976,7 +1021,6 @@ namespace Apostol {
                 m_Status = Process::psAuthorization;
 
                 CheckProviders();
-                FetchProviders();
 
                 if (m_Mode == rmMaster) {
                     CheckListen();
@@ -989,6 +1033,7 @@ namespace Apostol {
                     m_Status = Process::psInProgress;
 
                     InitServer();
+                    Apply();
                 }
             }
 
@@ -1005,13 +1050,21 @@ namespace Apostol {
                         if (!pClient->Connected()) {
                             Log()->Notice(_T("[%s] Trying connect to %s."), pClient->Session().IsEmpty() ? "<null>" : pClient->Session().c_str(), pClient->URI().href().c_str());
                             pClient->ConnectStart();
+                        } else {
+                            if (m_ApplyCount == 0) {
+                                CheckRelayLog(pClient->Connection());
+                            }
                         }
                     }
                 }
 
                 if (m_ApplyCount >= 0 && Now >= m_ApplyDate) {
-                    m_ApplyDate = Now + (CDateTime) 60 / MinsPerDay; // 60 min
-                    Apply();
+                    if (m_ApplyDate == 0) {
+                        m_ApplyDate = Now;
+                    } else {
+                        m_ApplyDate = Now + (CDateTime) 5 / MinsPerDay; // 5 min
+                        Apply();
+                    }
                 }
 
                 if (m_Mode == rmMaster) {
