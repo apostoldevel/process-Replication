@@ -288,12 +288,12 @@ namespace Apostol {
             auto OnDone = [this, &Provider](CTCPConnection *Sender) {
 
                 auto pConnection = dynamic_cast<CHTTPClientConnection *> (Sender);
-                auto pReply = pConnection->Reply();
+                auto &Reply = pConnection->Reply();
 
-                DebugReply(pReply);
+                DebugReply(Reply);
 
-                if (pReply->Status == CHTTPReply::ok) {
-                    const CJSON Json(pReply->Content);
+                if (Reply.Status == CHTTPReply::ok) {
+                    const CJSON Json(Reply.Content);
 
                     m_Session = Json["session"].AsString();
                     m_Secret = Json["secret"].AsString();
@@ -1077,10 +1077,10 @@ namespace Apostol {
         void CReplicationProcess::DoWebSocketError(CTCPConnection *AConnection) {
             auto pConnection = dynamic_cast<CWebSocketClientConnection *> (AConnection);
             auto pClient = dynamic_cast<CReplicationClient *> (pConnection->Client());
-            auto pReply = pConnection->Reply();
+            auto &Reply = pConnection->Reply();
 
-            if (pReply->Status == CHTTPReply::moved_permanently || pReply->Status == CHTTPReply::moved_temporarily) {
-                const auto &caLocation = pReply->Headers["Location"];
+            if (Reply.Status == CHTTPReply::moved_permanently || Reply.Status == CHTTPReply::moved_temporarily) {
+                const auto &caLocation = Reply.Headers["Location"];
                 if (!caLocation.IsEmpty()) {
                     pClient->SetURI(CLocation(caLocation));
                     Log()->Notice(_T("[%s] Redirect to %s."), pClient->Session().c_str(), pClient->URI().href().c_str());
