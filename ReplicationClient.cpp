@@ -308,6 +308,7 @@ namespace Apostol {
             for (int i = 0; i < Data().Count(); ++i) {
                 SendData(Data()[i]);
             }
+            Data().Clear();
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -320,7 +321,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationClient::Heartbeat(CDateTime Now) {
-            if ((Connection()->Protocol() == pWebSocket) && Active() && Connected()) {
+            if (Connection() != nullptr && (Connection()->Protocol() == pWebSocket && Active()) && Connected()) {
                 if (m_PongDateTime == 0)
                     m_PongDateTime = Now;
 

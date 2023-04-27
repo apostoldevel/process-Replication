@@ -41,7 +41,7 @@ namespace Apostol {
         namespace api {
 
             void replication_log(CStringList &SQL, unsigned long RelayId, const CString &Source, unsigned int Limit = 500) {
-                SQL.Add(CString().Format("SELECT row_to_json(r) FROM api.replication_log(%d, %s, %d) AS r ORDER BY id DESC;",
+                SQL.Add(CString().Format("SELECT row_to_json(r) FROM api.replication_log(%d, %s, %d) AS r;",
                                          RelayId,
                                          PQQuoteLiteral(Source).c_str(),
                                          Limit));
