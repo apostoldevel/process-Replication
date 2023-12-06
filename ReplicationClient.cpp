@@ -314,7 +314,7 @@ namespace Apostol {
 
         void CReplicationClient::PushMessageList() {
             for (int i = 0; i < m_MessageList.Count(); ++i) {
-                SendMessage(m_MessageList[i], true);
+                SendMessage(m_MessageList[i]);
             }
             m_MessageList.Clear();
         }
