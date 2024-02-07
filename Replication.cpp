@@ -29,6 +29,7 @@ Author:
 #define CONFIG_SECTION_NAME "process/Replication"
 //----------------------------------------------------------------------------------------------------------------------
 
+#define PG_CONFIG_NAME "helper"
 #define PG_LISTEN_NAME "replication"
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -105,14 +106,14 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        void CReplicationHandler::Close() {
-            m_Allow = false;
-            RemoveFromQueue();
+        CReplicationHandler::~CReplicationHandler() {
+            CReplicationHandler::Close();
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CReplicationHandler::~CReplicationHandler() {
-            Close();
+        void CReplicationHandler::Close() {
+            m_Allow = false;
+            RemoveFromQueue();
         }
         //--------------------------------------------------------------------------------------------------------------
 
@@ -141,7 +142,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         CReplicationProcess::CReplicationProcess(CCustomProcess *AParent, CApplication *AApplication):
-                inherited(AParent, AApplication, ptCustom, "replication process") {
+                inherited(AParent, AApplication, ptCustom, "replication") {
 
             m_RelayId = 0;
 
@@ -187,7 +188,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::Run() {
-            auto &PQClient = PQClientStart(_T("helper"));
+            auto &PQClient = PQClientStart(PG_CONFIG_NAME);
 
             while (!sig_exiting) {
 
@@ -344,23 +345,6 @@ namespace Apostol {
         }
         //--------------------------------------------------------------------------------------------------------------
 
-        CPQPollQuery *CReplicationProcess::GetQuery(CPollConnection *AConnection) {
-            auto pQuery = CServerProcess::GetQuery(AConnection);
-
-            if (Assigned(pQuery)) {
-#if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
-                pQuery->OnPollExecuted([this](auto && APollQuery) { DoPostgresQueryExecuted(APollQuery); });
-                pQuery->OnException([this](auto && APollQuery, auto && AException) { DoPostgresQueryException(APollQuery, AException); });
-#else
-                pQuery->OnPollExecuted(std::bind(&CReplicationProcess::DoPostgresQueryExecuted, this, _1));
-                pQuery->OnException(std::bind(&CReplicationProcess::DoPostgresQueryException, this, _1, _2));
-#endif
-            }
-
-            return pQuery;
-        }
-        //--------------------------------------------------------------------------------------------------------------
-
         CReplicationClient *CReplicationProcess::GetReplicationClient() {
             auto pClient = m_ClientManager.Add(CLocation(m_Server + "/session/" + m_Session));
 
@@ -369,7 +353,7 @@ namespace Apostol {
 
             pClient->ClientName() = GApplication->Title();
             pClient->AutoConnect(false);
-            pClient->AllocateEventHandlers(GetPQClient());
+            pClient->AllocateEventHandlers(GetPQClient(PG_CONFIG_NAME));
 
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
             pClient->OnVerbose([this](auto && Sender, auto && AConnection, auto && AFormat, auto && args) { DoVerbose(Sender, AConnection, AFormat, args); });
@@ -506,7 +490,7 @@ namespace Apostol {
             SQL.Add("LISTEN " PG_LISTEN_NAME ";");
 
             try {
-                ExecSQL(SQL, nullptr, OnExecuted, OnException);
+                ExecSQL(SQL, nullptr, OnExecuted, OnException, PG_CONFIG_NAME);
             } catch (Delphi::Exception::Exception &E) {
                 DoError(E);
             }
@@ -514,7 +498,7 @@ namespace Apostol {
         //--------------------------------------------------------------------------------------------------------------
 
         void CReplicationProcess::CheckListen() {
-            if (!GetPQClient().CheckListen(PG_LISTEN_NAME))
+            if (!GetPQClient(PG_CONFIG_NAME).CheckListen(PG_LISTEN_NAME))
                 InitListen();
         }
         //--------------------------------------------------------------------------------------------------------------

@@ -239,8 +239,6 @@ namespace Apostol {
             void Run() override;
             void Reload() override;
 
-            CPQPollQuery *GetQuery(CPollConnection *AConnection) override;
-
             void IncProgress() { m_Progress++; }
             void DecProgress() { m_Progress--; }
 
