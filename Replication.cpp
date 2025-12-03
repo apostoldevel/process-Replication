@@ -356,7 +356,7 @@ namespace Apostol {
             pClient->AllocateEventHandlers(GetPQClient(PG_CONFIG_NAME));
 
 #if defined(_GLIBCXX_RELEASE) && (_GLIBCXX_RELEASE >= 9)
-            pClient->OnVerbose([this](auto && Sender, auto && AConnection, auto && AFormat, auto && args) { DoVerbose(Sender, AConnection, AFormat, args); });
+            //pClient->OnVerbose([this](auto && Sender, auto && AFormat, auto && args) { DoVerbose(Sender, AFormat, args); });
             pClient->OnException([this](auto && AConnection, auto && AException) { DoException(AConnection, AException); });
             pClient->OnEventHandlerException([this](auto && AHandler, auto && AException) { DoServerEventHandlerException(AHandler, AException); });
             pClient->OnWebSocketError([this](auto && AConnection) { DoWebSocketError(AConnection); });
@@ -371,7 +371,7 @@ namespace Apostol {
             pClient->OnReplicationCheckLog([this](auto && Sender, auto && Id) { DoClientReplicationCheckLog(Sender, Id); });
             pClient->OnReplicationCheckRelay([this](auto && Sender, auto && RelayId) { DoClientReplicationCheckRelay(Sender, RelayId); });
 #else
-            pClient->OnVerbose(std::bind(&CReplicationProcess::DoVerbose, this, _1, _2, _3, _4));
+            //pClient->OnVerbose(std::bind(&CReplicationProcess::DoVerbose, this, _1, _2, _3));
             pClient->OnException(std::bind(&CReplicationProcess::DoException, this, _1, _2));
             pClient->OnEventHandlerException(std::bind(&CReplicationProcess::DoServerEventHandlerException, this, _1, _2));
             pClient->OnWebSocketError(std::bind(&CReplicationProcess::DoWebSocketError, this, _1));

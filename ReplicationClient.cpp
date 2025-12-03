@@ -326,7 +326,7 @@ namespace Apostol {
                     m_PongDateTime = Now;
 
                 if (Now - m_PongDateTime >= (CDateTime) 90 / SecsPerDay) {
-                    DoTimeOut();
+                    //DoTimeOut();
                     SwitchConnection(nullptr);
                     Reload();
                     return;
