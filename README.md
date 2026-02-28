@@ -1,154 +1,162 @@
-Репликация (Replication)
--
-**Процесс** для [Апостол CRM](https://github.com/apostoldevel/apostol-crm).
+[![ru](https://img.shields.io/badge/lang-ru-green.svg)](README.ru-RU.md)
 
-Описание
--
-Процесс репликации подразумевает собой распространение изменений данных с главного сервера (мастер, master), на один или более подчиненных серверов (слейв, slave).
-
-Необходимость в создании собственного механизма репликации данных обусловлена рядом требований к бизнес логике. Ключевым из которых является создание распределённой сети серверов в режиме работы Мастер-Мастер учитывая отсутствие у некоторых Мастер-серверов внешнего статического IP-адреса, а также передача данных по каналам связи с не стабильной работой и низкой пропускной способностью.
-
-Алгоритм работы
+Replication Server
 -
 
-Репликация состоит из трех шагов:
+**Process** for [Apostol](https://github.com/apostoldevel/apostol) + [db-platform](https://github.com/apostoldevel/db-platform) — **Apostol CRM**[^crm].
 
-1. Мастер-сервер сохраняет изменения данных в журнале репликации (`replication.log`).
-2. Слейв-сервер копирует эти данные в журнал ретрансляции (`replication.relay`) с указанием источника данных (`source`).
-3. Слейв-сервер воспроизводит изменения из журнала ретрансляции, применяя их к собственным данным.
-
-Установка
--
-Следуйте указаниям по сборке и установке [Апостол CRM](https://github.com/apostoldevel/apostol-crm#%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0-%D0%B8-%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0)
-
-Настройка
+Description
 -
 
-### Мастер-сервер
+**Replication Server** is a background process module for the [Apostol](https://github.com/apostoldevel/apostol) framework. It synchronizes data between Apostol CRM nodes over HTTP REST with gzip compression. Designed for low-bandwidth channels (satellite links on maritime vessels).
 
-Любой сервер может выступать в качестве Мастер-сервера, для этого нужно определиться со списком таблиц для репликации:
+Key characteristics:
 
-### Список таблиц  для репликации
+* Written in C++20 using an asynchronous, non-blocking I/O model based on the **epoll** API.
+* Connects to **PostgreSQL** via `libpq` using the `apibot` database role (helper connection pool).
+* Authenticates to a remote master node via **OAuth2 `client_credentials`** using `FetchClient`.
+* **NOTIFY-driven**: subscribes to PostgreSQL `LISTEN replication_cmd` for operator commands (mode/channel/sync).
+* **Automatic sync**: heartbeat-driven with configurable intervals per channel type.
+* **Priority-based filtering**: satellite sends only high-priority data, LAN sends everything.
+* **Offline accumulation**: data is always captured and stored locally, synced when connectivity is available.
+* **One HTTP round-trip per sync cycle**: slave sends its batch and receives the peer's batch in a single POST/response.
 
-Список доступных для репликации таблиц можно посмотреть с помощью следующего SQL запроса:
+### Architecture
 
-```postgresql
-SELECT * FROM ReplicationTable ORDER BY schema, name;
+Replication Server follows the **ProcessModule** pattern introduced in apostol.v2:
+
+```
+Application
+  └── ModuleProcess (generic process shell: signals, EventLoop, PgPool)
+        └── ReplicationServer (ProcessModule: business logic only)
 ```
 
-Активировать репликацию для таблицы из списка можно с помощью следующего SQL запроса:
+The process lifecycle (signal handling, crash recovery, PgPool setup, heartbeat timer) is managed by the generic `ModuleProcess` shell. `ReplicationServer` only contains the sync logic.
 
-```postgresql
-SELECT replication.table('schema', 'table', true);
+### Data flow
+
+```
+[Application] → INSERT/UPDATE/DELETE → [PostgreSQL WAL]
+                                            │
+[Publication: apostol_repl]                 │
+[Slot: apostol_repl]  ◄────────────────────┘
+      │
+[ReplicationServer.drain_slot()]
+      │  pg_logical_slot_get_changes() → wal2json
+      ▼
+[replication.outbox] ← priority from replication.list
+      │
+[sync()] ── FetchClient POST → remote /replication/sync
+      │                            │
+      │     ◄── response ──────────┘
+      ▼
+[apply_batch()] → INSERT/UPDATE/DELETE (DEFERRED constraints)
 ```
 
-Отключить репликацию для таблицы из списка можно с помощью следующего SQL запроса:
+### Sync cycle
 
-```postgresql
-SELECT replication.table('schema', 'table', false);
+```
+heartbeat (1s)
+  └── refresh_token()            — remote OAuth2 via FetchClient
+  └── drain_slot()               — always runs (even when paused)
+  └── process_notify_queue()     — LISTEN "replication_cmd"
+  └── if automatic && interval elapsed:
+        └── start_sync()
+              1. fetch_outbox(peer, channel, limit)  → collect local batch
+              2. POST master/replication/sync         → send batch, receive peer batch
+              3. apply_batch(source, entries)          → apply incoming entries
+              4. ack(source, max_id)                  → update watermarks
+              5. schedule_next_sync()                 → 5s if has_more, else interval
 ```
 
-#### Задействовать репликацию можно и в два этапа.
+### Modes
 
-На первом этапе нужно определиться со списком таблиц и установить для них признак репликации на втором включить репликацию.
+| Mode | Description |
+|------|-------------|
+| `automatic` | Sync on heartbeat interval (default) |
+| `paused` | Data accumulates in outbox but is not sent |
+| `manual` | Sync only on explicit command via NOTIFY |
 
-Установить или снять признак репликации на таблице можно с помощью следующего SQL запроса:
+Modes can be switched at runtime via `NOTIFY replication_cmd '{"action":"mode","mode":"paused"}'`.
 
-```postgresql
---Установить
-SELECT replication.set_table('schema', 'table', true);
---Снять
-SELECT replication.set_table('schema', 'table', false);
-```
-Как применять SQL запрос к списку таблиц в виде массива продемонстрировано в следующем примере:
+### Channels
 
-```postgresql
-SELECT replication.set_table('db', t.name, true) FROM (SELECT unnest(ARRAY['table1', 'table2', 'table3', 'tableN']) AS name) AS t;
-```
+| Channel | Interval | Priority filter | Tables sent |
+|---------|----------|-----------------|-------------|
+| `lan` | 30s | all (1-3) | Everything |
+| `wifi` | 60s | high + medium (1-2) | Most tables |
+| `satellite` | 300s | high only (1) | Critical data only |
 
-### Включение репликации
+All changes are always stored in the outbox. When the channel switches from satellite to LAN, accumulated medium and low priority entries are sent.
 
-Для того, что-бы включить репликацию на сервере необходимо выполнить следующий запрос:
+Database module
+-
 
-```postgresql
-SELECT replication.on();
-```
+ReplicationServer is coupled to the **`replication`** module of [db-platform](https://github.com/apostoldevel/db-platform).
 
-### Отключение репликации
+Key database objects:
 
-Для того, что-бы отключить репликацию на сервере выполнить следующий запрос:
+| Object | Purpose |
+|--------|---------|
+| `replication.outbox` | Slot-fed outbox with priority column |
+| `replication.peer` | Per-peer watermarks (sent_id, received_id) |
+| `replication.sync_log` | Audit journal (direction, channel, entries, bytes) |
+| `replication.list` | Table registry with priority settings |
+| `replication.drain(limit)` | Read slot → parse wal2json → INSERT into outbox |
+| `replication.fetch_outbox(peer, channel, limit)` | Batch for peer filtered by priority |
+| `replication.apply_batch(source, entries)` | Atomic apply with DEFERRED constraints |
+| `replication.ack(source, received_max_id)` | Update peer watermarks |
 
-```postgresql
-SELECT replication.off();
-```
+**Fallback**: the process can use existing db-platform functions (`api.replication_log`, `api.add_to_relay_log`, `api.replication_apply`) before the new functions are available.
 
-### Слейв-сервер
+Configuration
+-
 
-Слейв-сервер подключается к Мастер-серверу по [WebSocket API](https://github.com/apostoldevel/module-WebSocketAPI).
-
-Для активации Слейв-сервера в фале конфигурации необходимо убедиться в наличии следующих настроек:
-```
-## Process: Replication
-[process/Replication]
-## default: false
-enable=true
-
-## Source name
-#source=localhost
-
-## Replication mode: master, slave
-## default: slave
-#mode=slave
-
-auth=https://master-server.com
-server=wss://master-server.com
-provider=system
-application=replication
-oauth2=replication.json
-```
-
-Значения в параметрах `auth` и `server` должны соответствовать DNS-имени или IP-адресу Мастер-сервера.
-
-Файл `replication.json` должен располагаться в папке `oauth2` каталога с настройками Слейв-сервера (как правило это `/etc/<project>`).
-
-В этом файле указывается `client_id` и `client_secret` пользователя (OAuth2-клиента) зарегистрированного на Мастер-сервере. Обратите внимание на то, что бы пользователь был также включен в группу `replication` на Мастер-сервере.
-
-Пример файла:
+In the application config (`conf/apostol.json`):
 
 ```json
 {
-  "type": "service_account",
-  "issuers": ["accounts.master-server.com"],
-  "scopes": ["scope"],
-  "client_id": "<client_id>",
-  "client_secret": "<client_secret>",
-  "algorithm": "HS256",
-  "auth_uri": "/oauth2/authorize",
-  "token_uri": "/oauth2/token"
+  "module": {
+    "Replication": {
+      "enable": true,
+      "mode": "automatic",
+      "channel": "lan",
+      "master": "https://master.example.com",
+      "source": "vessel-aurora",
+      "interval": {
+        "lan": 30,
+        "wifi": 60,
+        "satellite": 300
+      },
+      "batch_limit": 500,
+      "drain_limit": 1000,
+      "oauth2": "replication.json"
+    }
+  }
 }
 ```
 
-Режимы репликации
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `enable` | bool | `false` | Enable/disable the process |
+| `mode` | string | `automatic` | Sync mode: `automatic`, `paused`, `manual` |
+| `channel` | string | `lan` | Active channel: `lan`, `wifi`, `satellite` |
+| `master` | string | — | Master node URL |
+| `source` | string | hostname | This node's identifier |
+| `interval` | object | `{30,60,300}` | Sync interval per channel (seconds) |
+| `batch_limit` | int | `500` | Max entries per sync batch |
+| `drain_limit` | int | `1000` | Max entries to drain from slot per heartbeat |
+| `oauth2` | string | — | Path to OAuth2 credentials JSON file |
+
+The process also requires:
+* `postgres.helper` connection string in the config
+* OAuth2 credentials file with `client_id`, `client_secret`, `token_uri`
+
+Build requirements: `WITH_POSTGRESQL`.
+
+Installation
 -
 
-Существует три режима репликации:
+Follow the build and installation instructions for [Apostol](https://github.com/apostoldevel/apostol#building-and-installation).
 
-- Slave;
-- Proxy;
-- Master.
-
-#### Slave
-
-По умолчанию Слейв-сервер работает в режиме Слейв-Мастер. Это означает, что данные будут передаваться только от Мастер-сервера к Слейв-серверу.
-
-#### Proxy
-
-Прокси-сервер выполняет функции Слейв-сервера но при этом дублирует поступающие в журнал ретрансляции (`replication.relay`) данные в журнал репликации (`replication.log`). Это позволяет другим серверам подключенным к Прокси-серверу получать данные с Мастер-сервера к которому подключен Прокси-сервер.
-
-#### Master
-
-Слейв-сервер можно настроить в режим работы Мастер-Мастер. Для этого нужно указать в параметре `mode` значение `master` и выполнить настройки репликации описанные выше в разделе [Мастер-сервер](#Мастер-сервер). В этом режиме оба сервера будут передавать данные друг другу, но при этом только один из них будет подключен к другому.
-
-Здесь важно указать на обоих серверах одни и те же таблицы для репликации, хотя это не обязательное условие.
-
-Можно, конечно, настроить два сервера друг на друга в режиме `slave`, но лучше придерживаться правила при котором только один сервер подключается к другому. При такой схеме можно выстроить распределённую сеть где множество Слейв-сервер (в режиме `master`) будут подключается к одному главному Мастер-серверу.
+[^crm]: **Apostol CRM** is an abstract term, not a standalone product. It refers to any project that uses both the [Apostol](https://github.com/apostoldevel/apostol) C++ framework and [db-platform](https://github.com/apostoldevel/db-platform) together through purpose-built modules and processes. Each framework can be used independently; combined, they form a full-stack backend platform.
