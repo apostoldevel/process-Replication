@@ -3,6 +3,7 @@
 #ifdef WITH_POSTGRESQL
 
 #include "apostol/process_module.hpp"
+#include "apostol/bot_session.hpp"
 #include "apostol/pg.hpp"
 #include "apostol/fetch_client.hpp"
 
@@ -85,6 +86,7 @@ private:
     Logger*     logger_{nullptr};
     EventLoop*  loop_{nullptr};
 
+    std::unique_ptr<BotSession>  bot_;    // local DB auth (apibot)
     std::unique_ptr<FetchClient> fetch_;
 
     Status   status_{Status::stopped};
@@ -104,6 +106,7 @@ private:
     // Sync state
     bool         sync_in_progress_{false};
     time_point   next_sync_{};
+    time_point   next_token_retry_{};  // backoff for remote OAuth2 retries
     time_point   last_sync_{};
     std::string  last_error_;
     std::size_t  sync_count_{0};
@@ -119,6 +122,7 @@ private:
 
     // NOTIFY queue (from "replication_cmd")
     std::vector<std::string> pending_commands_;
+    std::size_t  max_pending_commands_{100};
 
     // -- Config ---------------------------------------------------------------
     void load_config(Application& app);

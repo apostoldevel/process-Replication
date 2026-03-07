@@ -121,11 +121,17 @@ void ReplicationServer::on_start(EventLoop& loop, Application& app)
     logger_ = &app.logger();
     loop_   = &loop;
 
-    // FetchClient for HTTP sync + OAuth2 token fetch
+    // BotSession for local DB authentication (apibot)
+    bot_ = std::make_unique<BotSession>(*pool_, "ReplicationServer/1.0", "localhost");
+    auto [cid, csec] = app.providers().credentials("service");
+    if (!cid.empty())
+        bot_->set_credentials(std::move(cid), std::move(csec));
+
+    // FetchClient for HTTP sync + remote OAuth2 token fetch
     fetch_ = std::make_unique<FetchClient>(loop);
     fetch_->set_timeout(30000);  // 30s — important for satellite channels
 
-    // Load config first (to populate source_ and cache oauth2 credentials)
+    // Load config first (to populate source_ and cache remote oauth2 credentials)
     load_config(app);
 
     // Determine source name (defaults to hostname)
@@ -153,11 +159,16 @@ void ReplicationServer::on_start(EventLoop& loop, Application& app)
 
 void ReplicationServer::heartbeat(std::chrono::system_clock::time_point now)
 {
-    if (!fetch_ || !pool_)
+    if (!fetch_ || !pool_ || !bot_)
         return;
 
-    // 1. Refresh remote OAuth2 token
-    if (!token_valid() && status_ != Status::authenticating)
+    // 0. Refresh local BotSession (apibot)
+    bot_->refresh_if_needed();
+    if (!bot_->valid())
+        return;
+
+    // 1. Refresh remote OAuth2 token (with backoff)
+    if (!token_valid() && status_ != Status::authenticating && now >= next_token_retry_)
         refresh_token();
 
     if (!token_valid())
@@ -186,6 +197,9 @@ void ReplicationServer::on_stop()
 {
     if (pool_)
         pool_->unlisten("replication_cmd");
+    if (bot_)
+        bot_->sign_out();
+    bot_.reset();
     fetch_.reset();
     access_token_.clear();
 }
@@ -242,11 +256,13 @@ void ReplicationServer::on_token_error(std::string_view error)
     logger_->error("ReplicationServer: OAuth2 failed: {}", error);
     status_ = Status::stopped;
     access_token_.clear();
-    // Retry after backoff
+    // Retry after backoff (applies to both token refresh and sync)
     ++consecutive_errors_;
     auto backoff = std::min(seconds(10 * (1 << std::min(consecutive_errors_, std::size_t(8)))),
                             seconds(1800));
-    next_sync_ = std::chrono::system_clock::now() + backoff;
+    auto retry_at = std::chrono::system_clock::now() + backoff;
+    next_token_retry_ = retry_at;
+    next_sync_        = retry_at;
 }
 
 // --- Drain slot -> outbox ----------------------------------------------------
@@ -266,7 +282,8 @@ void ReplicationServer::drain_slot()
 
 void ReplicationServer::on_notify(std::string_view payload)
 {
-    pending_commands_.emplace_back(payload);
+    if (pending_commands_.size() < max_pending_commands_)
+        pending_commands_.emplace_back(payload);
 }
 
 void ReplicationServer::process_notify_queue()
@@ -333,7 +350,9 @@ void ReplicationServer::start_sync()
     // switch to that for priority-based filtering.
     //
     auto sql = fmt::format(
+        "SELECT * FROM api.authorize({});\n"
         "SELECT * FROM api.replication_log(0, {}, {})",
+        pq_quote_literal(bot_->session()),
         pq_quote_literal(source_),
         batch_limit_);
 
@@ -348,19 +367,28 @@ void ReplicationServer::start_sync()
 
 void ReplicationServer::on_outbox_ready(std::vector<PgResult> results)
 {
-    if (results.empty() || !results[0].ok()) {
+    // results[0] = authorize, results[1] = replication_log
+    if (results.size() < 2 || !results[1].ok()) {
         on_sync_error("Failed to read outbox");
         return;
     }
 
-    auto& res = results[0];
+    auto& res = results[1];
+
+    int rows = res.rows();
+
+    // Nothing to send — skip HTTP round-trip (important for satellite)
+    if (rows == 0) {
+        sync_in_progress_ = false;
+        schedule_next_sync(false);
+        return;
+    }
 
     // Build JSON payload
     nlohmann::json payload;
     payload["source"] = source_;
     payload["entries"] = nlohmann::json::array();
 
-    int rows = res.rows();
     for (int r = 0; r < rows; ++r) {
         nlohmann::json entry;
         for (int c = 0; c < res.columns(); ++c) {
@@ -424,7 +452,8 @@ void ReplicationServer::on_sync_response(FetchResponse resp)
 
     // Apply incoming batch using existing api.add_to_relay_log + api.replication_apply
     // When replication.apply_batch() is available, switch to that.
-    std::string sql;
+    std::string sql = fmt::format("SELECT * FROM api.authorize({});\n",
+                                  pq_quote_literal(bot_->session()));
     for (auto& entry : entries) {
         sql += fmt::format(
             "SELECT * FROM api.add_to_relay_log({}, {}, {}::timestamptz, "
